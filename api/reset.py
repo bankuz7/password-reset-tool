@@ -69,7 +69,6 @@ class handler(BaseHTTPRequestHandler):
             text_lower = post_resp.text.lower()
             final_url = post_resp.url.lower()
 
-            # Improved success detection
             success = (
                 "password has been reset" in text_lower or
                 "your password has been reset" in text_lower or
@@ -78,7 +77,6 @@ class handler(BaseHTTPRequestHandler):
                 "/login" in final_url
             )
 
-            # Common error messages extract
             message = "✅ Password reset successful! Ab naye password se login karo." if success else "❌ Reset fail hua."
 
             if not success:
