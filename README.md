@@ -1,6 +1,6 @@
 # Password Reset Tool - Vanraj College
 
-Simple web tool to reset password on **Vanraj College Payment Portal** (`payment.vaccdharampur.org`).
+Simple web tool to reset password on **Vanraj College Payment Portal**.
 
 ## Deploy on Vercel
 
@@ -8,13 +8,10 @@ Simple web tool to reset password on **Vanraj College Payment Portal** (`payment
 2. Import this repository
 3. Deploy
 
-After deploy, open the URL and use the form.
-
 ## How to use
 
 1. Enter registered **Email**
-2. Paste **Reset Token** from the password reset email link  
-   Example: `https://payment.vaccdharampur.org/password/reset/TOKEN_HERE`
+2. Paste **Reset Token** from the password reset email link
 3. Enter **New Password**
 4. Click **Reset Password**
 

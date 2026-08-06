@@ -1,0 +1,10 @@
+[project]
+name = "password-reset-tool"
+version = "1.0.0"
+requires-python = ">=3.9"
+dependencies = [
+  "requests==2.32.3",
+]
+
+[tool.vercel]
+entrypoint = "api.index:handler"
