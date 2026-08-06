@@ -190,15 +190,25 @@ class handler(BaseHTTPRequestHandler):
             )
 
             text_lower = post_resp.text.lower()
-            final_url = post_resp.url.lower()
+            final_url = post_resp.url.lower().rstrip("/")
 
+            # Laravel success often redirects to /home (logged in), not /login
             success = (
                 "password has been reset" in text_lower or
                 "your password has been reset" in text_lower or
                 "password reset successfully" in text_lower or
-                final_url.rstrip("/").endswith("/login") or
+                final_url.endswith("/home") or
+                final_url.endswith("/dashboard") or
+                "/home" in final_url or
+                final_url.endswith("/login") or
                 "/login" in final_url
             )
+
+            # If still on reset page with validation errors => fail
+            if "/password/reset" in final_url and (
+                "invalid" in text_lower or "expired" in text_lower or "can't find" in text_lower
+            ):
+                success = False
 
             message = "✅ Password reset successful! Ab naye password se login karo." if success else "❌ Reset fail hua."
 
@@ -209,6 +219,8 @@ class handler(BaseHTTPRequestHandler):
                     message = "❌ Reset token invalid ya expire ho gaya hai. Naya link mangwao."
                 elif "password" in text_lower and "confirmation" in text_lower:
                     message = "❌ Password confirmation match nahi kar raha."
+                else:
+                    message = f"❌ Reset fail hua. Final URL: {post_resp.url}"
 
             return self._json(200, {
                 "success": success,
