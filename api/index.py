@@ -5,37 +5,61 @@ import requests
 from urllib.parse import parse_qs
 
 HTML = r"""<!DOCTYPE html>
-<html lang="hi">
+<html lang="hi" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Password Reset • Vanraj College</title>
   <style>
-    :root {
-      --primary: #2563eb; --primary-hover: #1d4ed8; --bg: #f1f5f9; --card: #fff;
-      --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --radius: 12px;
+    :root, [data-theme="light"] {
+      --primary: #2563eb; --primary-hover: #1d4ed8;
+      --bg: #f1f5f9; --card: #ffffff; --text: #0f172a;
+      --muted: #64748b; --border: #e2e8f0; --radius: 12px;
+      --ok-bg: #dcfce7; --ok-text: #166534; --ok-border: #bbf7d0;
+      --err-bg: #fee2e2; --err-text: #991b1b; --err-border: #fecaca;
+      --note-bg: #f8fafc; --input-bg: #ffffff; --filled-bg: #f0fdf4;
+    }
+    [data-theme="dark"] {
+      --primary: #3b82f6; --primary-hover: #60a5fa;
+      --bg: #0f172a; --card: #1e293b; --text: #f1f5f9;
+      --muted: #94a3b8; --border: #334155;
+      --ok-bg: #14532d; --ok-text: #bbf7d0; --ok-border: #166534;
+      --err-bg: #7f1d1d; --err-text: #fecaca; --err-border: #991b1b;
+      --note-bg: #0f172a; --input-bg: #0f172a; --filled-bg: #14532d;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: system-ui, -apple-system, sans-serif; background: var(--bg);
-      min-height: 100vh; display: grid; place-items: center; padding: 1.25rem; color: var(--text);
+      min-height: 100vh; display: grid; place-items: center; padding: 1.25rem;
+      color: var(--text); transition: background .2s, color .2s;
     }
     .card {
       background: var(--card); width: 100%; max-width: 440px; padding: 2rem;
-      border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.08);
+      border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.12);
+      border: 1px solid var(--border); position: relative;
     }
-    h1 { font-size: 1.35rem; font-weight: 700; margin-bottom: .25rem; }
-    .sub { color: var(--muted); font-size: .875rem; margin-bottom: 1.5rem; }
+    .top {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 1.25rem; gap: 1rem;
+    }
+    h1 { font-size: 1.35rem; font-weight: 700; }
+    .sub { color: var(--muted); font-size: .875rem; margin-top: .2rem; }
+    #themeBtn {
+      background: var(--note-bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: .45rem .7rem; cursor: pointer; font-size: 1.1rem;
+      line-height: 1; flex-shrink: 0;
+    }
     label { display: block; font-size: .8125rem; font-weight: 500; margin: 1rem 0 .4rem; }
     input {
-      width: 100%; padding: .7rem .9rem; border: 1px solid var(--border);
+      width: 100%; padding: .75rem .9rem; border: 1px solid var(--border);
       border-radius: var(--radius); font-size: .95rem;
+      background: var(--input-bg); color: var(--text);
     }
     input:focus {
       outline: none; border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.2);
     }
-    input.filled { border-color: #22c55e; background: #f0fdf4; }
+    input.filled { border-color: #22c55e; background: var(--filled-bg); }
     .row { display: flex; gap: .5rem; align-items: stretch; }
     .row input { flex: 1; min-width: 0; }
     button {
@@ -45,50 +69,98 @@ HTML = r"""<!DOCTYPE html>
     }
     button:hover { background: var(--primary-hover); }
     button:disabled { opacity: .65; cursor: not-allowed; }
-    button.secondary { background: #475569; }
-    button.secondary:hover { background: #334155; }
-    button.full { width: 100%; margin-top: 1.5rem; padding: .85rem; font-size: 1rem; }
+    button.secondary {
+      background: transparent; color: var(--text); border: 1px solid var(--border);
+    }
+    button.secondary:hover { background: var(--note-bg); }
+    button.full { width: 100%; margin-top: 1.25rem; padding: .9rem; font-size: 1rem; }
+    button.ghost {
+      width: 100%; margin-top: .6rem; padding: .7rem; font-size: .85rem;
+      background: transparent; color: var(--muted); border: 1px dashed var(--border);
+    }
+    button.ghost:hover { color: var(--text); border-style: solid; }
+    #advanced { display: none; margin-top: .5rem; }
+    #advanced.open { display: block; }
     #result {
-      display: none; margin-top: 1.25rem; padding: .85rem 1rem;
+      display: none; margin-top: 1.25rem; padding: .9rem 1rem;
       border-radius: var(--radius); font-size: .875rem; line-height: 1.5; word-break: break-all;
     }
-    .ok  { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-    .err { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .ok  { background: var(--ok-bg); color: var(--ok-text); border: 1px solid var(--ok-border); }
+    .err { background: var(--err-bg); color: var(--err-text); border: 1px solid var(--err-border); }
     .note {
-      margin-top: 1.25rem; padding: .85rem; background: #f8fafc;
+      margin-top: 1.25rem; padding: .85rem; background: var(--note-bg);
       border-radius: 10px; font-size: .78rem; color: var(--muted); line-height: 1.5;
+      border: 1px solid var(--border);
     }
+    .steps {
+      display: flex; gap: .4rem; margin: 1rem 0 .25rem; font-size: .75rem; color: var(--muted);
+    }
+    .steps span {
+      flex: 1; text-align: center; padding: .35rem; border-radius: 8px;
+      background: var(--note-bg); border: 1px solid var(--border);
+    }
+    .steps span.active { color: var(--primary); border-color: var(--primary); font-weight: 600; }
+    .steps span.done { color: #22c55e; border-color: #22c55e; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Password Reset</h1>
-    <p class="sub">Vanraj College Payment Portal</p>
+    <div class="top">
+      <div>
+        <h1>Password Reset</h1>
+        <p class="sub">Vanraj College Payment Portal</p>
+      </div>
+      <button type="button" id="themeBtn" title="Toggle dark mode">🌙</button>
+    </div>
+
+    <div class="steps" id="steps">
+      <span id="s1">1. Email</span>
+      <span id="s2">2. Token</span>
+      <span id="s3">3. Done</span>
+    </div>
 
     <label for="email">Email Address</label>
     <input id="email" type="email" placeholder="registered@email.com" autocomplete="email">
 
-    <label for="token">Reset Token</label>
-    <div class="row">
-      <input id="token" type="text" placeholder="Find Token se auto-fill">
-      <button type="button" class="secondary" id="findBtn">Find Token</button>
-    </div>
-
     <label for="password">New Password</label>
     <input id="password" type="password" placeholder="Naya password (min 6)" autocomplete="new-password">
 
-    <button class="full" id="btn">Reset Password</button>
+    <button class="full" id="oneClickBtn">One-Click Reset</button>
+    <button type="button" class="ghost" id="toggleAdv">Advanced: manual token ▾</button>
+
+    <div id="advanced">
+      <label for="token">Reset Token</label>
+      <div class="row">
+        <input id="token" type="text" placeholder="Auto ya paste">
+        <button type="button" class="secondary" id="findBtn">Find</button>
+      </div>
+      <button class="full" id="manualBtn" style="margin-top:.75rem">Reset with Token</button>
+    </div>
 
     <div id="result"></div>
 
     <div class="note">
-      <b>Steps:</b> 1) Email dalo 2) Find Token (10-20 sec lag sakta hai) 3) Password dalo 4) Reset<br>
-      Hard refresh: Ctrl+Shift+R agar purana page dikhe.
+      <b>One-Click:</b> Sirf email + naya password dalo → button dabao.<br>
+      Token automatic nikal ke reset ho jayega (10–25 sec lag sakte hain).
     </div>
   </div>
   <script>
     const $ = id => document.getElementById(id);
     const result = $('result');
+
+    // Theme
+    (function initTheme() {
+      const saved = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+      $('themeBtn').textContent = saved === 'dark' ? '☀️' : '🌙';
+    })();
+    $('themeBtn').onclick = () => {
+      const cur = document.documentElement.getAttribute('data-theme');
+      const next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      $('themeBtn').textContent = next === 'dark' ? '☀️' : '🌙';
+    };
 
     function show(msg, ok) {
       result.style.display = 'block';
@@ -96,95 +168,132 @@ HTML = r"""<!DOCTYPE html>
       result.textContent = msg;
     }
 
-    async function findToken() {
-      const email = $('email').value.trim();
-      const btn = $('findBtn');
-      const tokenInput = $('token');
+    function setStep(n) {
+      [1,2,3].forEach(i => {
+        const el = $('s' + i);
+        el.classList.remove('active', 'done');
+        if (i < n) el.classList.add('done');
+        if (i === n) el.classList.add('active');
+      });
+    }
 
-      if (!email) {
-        show('Pehle email address dalo', false);
-        return;
-      }
+    $('toggleAdv').onclick = () => {
+      const adv = $('advanced');
+      const open = adv.classList.toggle('open');
+      $('toggleAdv').textContent = open ? 'Advanced: manual token ▴' : 'Advanced: manual token ▾';
+    };
 
-      btn.disabled = true;
-      btn.textContent = 'Finding...';
-      result.style.display = 'none';
-      tokenInput.classList.remove('filled');
-
+    async function api(body) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 40000);
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 35000);
-
         const res = await fetch('/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'find_token', email: email }),
+          body: JSON.stringify(body),
           signal: controller.signal
         });
+        return await res.json();
+      } finally {
         clearTimeout(timer);
-
-        const data = await res.json();
-        console.log('find_token response', data);
-
-        if (data && data.success && data.token) {
-          tokenInput.value = data.token;
-          tokenInput.classList.add('filled');
-          tokenInput.focus();
-          show('Token mil gaya aur fill ho gaya! Ab naya password dalo aur Reset dabao.', true);
-        } else {
-          show((data && data.message) ? data.message : 'Token nahi mila', false);
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          show('Timeout: server slow hai. Dobara Find Token try karo.', false);
-        } else {
-          show('Error: ' + err.message, false);
-        }
       }
-
-      btn.disabled = false;
-      btn.textContent = 'Find Token';
     }
 
-    async function resetPassword() {
+    async function findTokenOnly() {
+      const email = $('email').value.trim();
+      if (!email) return show('Pehle email dalo', false);
+      const btn = $('findBtn');
+      btn.disabled = true;
+      btn.textContent = '...';
+      setStep(2);
+      try {
+        const data = await api({ action: 'find_token', email });
+        if (data.success && data.token) {
+          $('token').value = data.token;
+          $('token').classList.add('filled');
+          show('Token mil gaya. Ab Reset with Token dabao ya password set karke One-Click use karo.', true);
+        } else {
+          show(data.message || 'Token nahi mila', false);
+        }
+      } catch (e) {
+        show(e.name === 'AbortError' ? 'Timeout. Dobara try karo.' : ('Error: ' + e.message), false);
+      }
+      btn.disabled = false;
+      btn.textContent = 'Find';
+    }
+
+    async function resetWithToken() {
       const email = $('email').value.trim();
       const token = $('token').value.trim();
       const password = $('password').value.trim();
-      const btn = $('btn');
-
-      if (!email || !token || !password) {
-        show('Email, Token aur Password sab required hain', false);
-        return;
-      }
-      if (password.length < 6) {
-        show('Password kam se kam 6 characters ka hona chahiye', false);
-        return;
-      }
-
+      if (!email || !token || !password) return show('Email, Token, Password required', false);
+      if (password.length < 6) return show('Password min 6 characters', false);
+      const btn = $('manualBtn');
       btn.disabled = true;
       btn.textContent = 'Processing...';
+      try {
+        const data = await api({ action: 'reset', email, token, password });
+        if (data.success) setStep(3);
+        show(data.message, !!data.success);
+      } catch (e) {
+        show('Error: ' + e.message, false);
+      }
+      btn.disabled = false;
+      btn.textContent = 'Reset with Token';
+    }
+
+    async function oneClick() {
+      const email = $('email').value.trim();
+      const password = $('password').value.trim();
+      const btn = $('oneClickBtn');
+
+      if (!email || !password) return show('Email aur New Password dono dalo', false);
+      if (password.length < 6) return show('Password min 6 characters', false);
+
+      btn.disabled = true;
+      $('findBtn').disabled = true;
+      $('manualBtn').disabled = true;
       result.style.display = 'none';
 
       try {
-        const res = await fetch('/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reset', email: email, token: token, password: password })
-        });
-        const data = await res.json();
-        show(data.message || (data.success ? 'Success' : 'Failed'), !!data.success);
-      } catch (err) {
-        show('Error: ' + err.message, false);
-      }
+        // Step 1: find token
+        setStep(2);
+        btn.textContent = 'Finding token...';
+        const found = await api({ action: 'find_token', email });
+        if (!found.success || !found.token) {
+          show(found.message || 'Token nahi mila', false);
+          return;
+        }
+        $('token').value = found.token;
+        $('token').classList.add('filled');
 
-      btn.disabled = false;
-      btn.textContent = 'Reset Password';
+        // Step 2: reset
+        btn.textContent = 'Resetting password...';
+        const done = await api({
+          action: 'reset',
+          email,
+          token: found.token,
+          password
+        });
+        if (done.success) setStep(3);
+        show(done.message, !!done.success);
+      } catch (e) {
+        show(e.name === 'AbortError' ? 'Timeout (server slow). Dobara try karo.' : ('Error: ' + e.message), false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'One-Click Reset';
+        $('findBtn').disabled = false;
+        $('manualBtn').disabled = false;
+      }
     }
 
-    $('findBtn').addEventListener('click', findToken);
-    $('btn').addEventListener('click', resetPassword);
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') resetPassword();
+    setStep(1);
+    $('email').addEventListener('input', () => setStep(1));
+    $('findBtn').onclick = findTokenOnly;
+    $('manualBtn').onclick = resetWithToken;
+    $('oneClickBtn').onclick = oneClick;
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') oneClick();
     });
   </script>
 </body>
@@ -234,7 +343,7 @@ def find_token(email: str):
 
     return {
         "success": False,
-        "message": f"Token nahi mila (HTTP {post.status_code}). Debug leak band ho sakta hai.",
+        "message": f"Token nahi mila (HTTP {post.status_code}).",
     }
 
 
@@ -298,7 +407,7 @@ def reset_password(email: str, token: str, password: str):
     elif "can't find a user" in text_lower:
         message = "Is email se koi account nahi mila."
     elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
-        message = "Token invalid/expire. Find Token se naya lo."
+        message = "Token invalid/expire. Dobara One-Click try karo."
     else:
         message = f"Reset fail. URL: {post_resp.url}"
 
