@@ -1,8 +1,11 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import os
 import re
 import requests
 from urllib.parse import parse_qs
+
+ACCESS_PIN = os.environ.get("ACCESS_PIN", "9712")
 
 HTML = r"""<!DOCTYPE html>
 <html lang="hi" data-theme="light">
@@ -49,8 +52,7 @@ HTML = r"""<!DOCTYPE html>
     .sub { color: var(--muted); font-size: .875rem; margin-top: .2rem; }
     .icon-btn {
       background: var(--note-bg); border: 1px solid var(--border); color: var(--text);
-      border-radius: 10px; padding: .45rem .65rem; cursor: pointer; font-size: 1rem;
-      line-height: 1;
+      border-radius: 10px; padding: .45rem .65rem; cursor: pointer; font-size: 1rem; line-height: 1;
     }
     label { display: block; font-size: .8125rem; font-weight: 500; margin: 1rem 0 .4rem; }
     input {
@@ -72,9 +74,7 @@ HTML = r"""<!DOCTYPE html>
     }
     button:hover { background: var(--primary-hover); }
     button:disabled { opacity: .65; cursor: not-allowed; }
-    button.secondary {
-      background: transparent; color: var(--text); border: 1px solid var(--border);
-    }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
     button.secondary:hover { background: var(--note-bg); }
     button.full { width: 100%; margin-top: 1.25rem; padding: .9rem; font-size: 1rem; }
     button.ghost {
@@ -114,9 +114,7 @@ HTML = r"""<!DOCTYPE html>
       font-size: .8rem; color: var(--muted); margin-bottom: .4rem;
       display: flex; justify-content: space-between;
     }
-    .progress-track {
-      height: 8px; background: var(--border); border-radius: 99px; overflow: hidden;
-    }
+    .progress-track { height: 8px; background: var(--border); border-radius: 99px; overflow: hidden; }
     .progress-fill {
       height: 100%; width: 0%; background: var(--primary);
       border-radius: 99px; transition: width .35s ease;
@@ -144,10 +142,41 @@ HTML = r"""<!DOCTYPE html>
     .toast.hide { animation: toastOut .25s ease forwards; }
     @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
     @keyframes toastOut { to { opacity: 0; transform: translateY(-8px); } }
+
+    /* PIN gate */
+    #pinGate {
+      position: fixed; inset: 0; z-index: 10000;
+      background: var(--bg); display: grid; place-items: center; padding: 1.25rem;
+    }
+    #pinGate.hidden { display: none; }
+    #app.hidden { display: none; }
+    .pin-card { text-align: center; }
+    .pin-card h1 { margin-bottom: .35rem; }
+    .pin-card .sub { margin-bottom: 1.5rem; }
+    .pin-card input {
+      text-align: center; letter-spacing: .35em; font-size: 1.25rem; font-weight: 600;
+    }
+    #pinError { color: var(--err-text); font-size: .85rem; margin-top: .75rem; min-height: 1.2em; }
   </style>
 </head>
 <body>
   <div id="toasts"></div>
+
+  <!-- PIN GATE -->
+  <div id="pinGate">
+    <div class="card pin-card">
+      <h1>Access PIN</h1>
+      <p class="sub">Tool use karne ke liye PIN daalo</p>
+      <input id="pinInput" type="password" inputmode="numeric" maxlength="8" placeholder="••••" autocomplete="off">
+      <button class="full" id="pinBtn" style="margin-top:1rem">Unlock</button>
+      <div id="pinError"></div>
+      <div class="note" style="margin-top:1.25rem;text-align:left">
+        Sirf authorized users. Galat PIN pe API bhi block hogi.
+      </div>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
   <div class="card">
     <div class="top">
       <div>
@@ -155,6 +184,7 @@ HTML = r"""<!DOCTYPE html>
         <p class="sub">Vanraj College Payment Portal</p>
       </div>
       <div class="top-actions">
+        <button type="button" class="icon-btn" id="lockBtn" title="Lock again">🔒</button>
         <button type="button" class="icon-btn" id="soundBtn" title="Sound on/off">🔊</button>
         <button type="button" class="icon-btn" id="themeBtn" title="Dark mode">🌙</button>
       </div>
@@ -199,16 +229,78 @@ HTML = r"""<!DOCTYPE html>
     <div class="note">
       <b>One-Click:</b> Email + password → auto token + reset.<br>
       Success ke baad <b>Test Login</b> ya <b>Open Login Page</b> use karo.<br>
-      🔊 se sound on/off.
+      🔒 se dobara lock. 🔊 sound on/off.
     </div>
+  </div>
   </div>
 
   <script>
     const $ = id => document.getElementById(id);
     const LOGIN_URL = 'https://payment.vaccdharampur.org/login';
+    const PIN_KEY = 'tool_unlocked_v1';
     const result = $('result');
     let lastPassword = '';
+    let accessPin = sessionStorage.getItem('access_pin') || '';
     let soundOn = localStorage.getItem('sound') !== 'off';
+
+    function isUnlocked() {
+      return sessionStorage.getItem(PIN_KEY) === '1' && accessPin;
+    }
+
+    function unlockUI() {
+      $('pinGate').classList.add('hidden');
+      $('app').classList.remove('hidden');
+    }
+
+    function lockUI() {
+      sessionStorage.removeItem(PIN_KEY);
+      sessionStorage.removeItem('access_pin');
+      accessPin = '';
+      $('app').classList.add('hidden');
+      $('pinGate').classList.remove('hidden');
+      $('pinInput').value = '';
+      $('pinError').textContent = '';
+      $('pinInput').focus();
+    }
+
+    async function tryUnlock() {
+      const pin = $('pinInput').value.trim();
+      $('pinError').textContent = '';
+      if (!pin) {
+        $('pinError').textContent = 'PIN daalo';
+        return;
+      }
+      $('pinBtn').disabled = true;
+      $('pinBtn').textContent = 'Checking...';
+      try {
+        const data = await api({ action: 'verify_pin', pin }, true);
+        if (data.success) {
+          accessPin = pin;
+          sessionStorage.setItem(PIN_KEY, '1');
+          sessionStorage.setItem('access_pin', pin);
+          unlockUI();
+          toast('Unlocked', true);
+        } else {
+          $('pinError').textContent = data.message || 'Galat PIN';
+          playSound(false);
+        }
+      } catch (e) {
+        $('pinError').textContent = 'Error: ' + e.message;
+      }
+      $('pinBtn').disabled = false;
+      $('pinBtn').textContent = 'Unlock';
+    }
+
+    if (isUnlocked()) unlockUI();
+    else {
+      $('pinGate').classList.remove('hidden');
+      $('app').classList.add('hidden');
+      setTimeout(() => $('pinInput').focus(), 100);
+    }
+
+    $('pinBtn').onclick = tryUnlock;
+    $('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+    $('lockBtn').onclick = lockUI;
 
     // Theme
     (function () {
@@ -223,10 +315,7 @@ HTML = r"""<!DOCTYPE html>
       $('themeBtn').textContent = next === 'dark' ? '☀️' : '🌙';
     };
 
-    // Sound toggle
-    function updateSoundBtn() {
-      $('soundBtn').textContent = soundOn ? '🔊' : '🔇';
-    }
+    function updateSoundBtn() { $('soundBtn').textContent = soundOn ? '🔊' : '🔇'; }
     updateSoundBtn();
     $('soundBtn').onclick = () => {
       soundOn = !soundOn;
@@ -235,7 +324,6 @@ HTML = r"""<!DOCTYPE html>
       if (soundOn) playSound(true);
     };
 
-    // Web Audio beeps (no external files)
     let audioCtx = null;
     function playSound(ok) {
       if (!soundOn) return;
@@ -246,27 +334,17 @@ HTML = r"""<!DOCTYPE html>
         gain.connect(audioCtx.destination);
         gain.gain.setValueAtTime(0.0001, now);
         gain.gain.exponentialRampToValueAtTime(0.15, now + 0.02);
-
         if (ok) {
-          // two rising beeps
           [523.25, 659.25].forEach((freq, i) => {
             const o = audioCtx.createOscillator();
-            o.type = 'sine';
-            o.frequency.value = freq;
-            o.connect(gain);
-            const t = now + i * 0.12;
-            o.start(t);
-            o.stop(t + 0.12);
+            o.type = 'sine'; o.frequency.value = freq; o.connect(gain);
+            const t = now + i * 0.12; o.start(t); o.stop(t + 0.12);
           });
           gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
         } else {
-          // low buzz
           const o = audioCtx.createOscillator();
-          o.type = 'square';
-          o.frequency.value = 180;
-          o.connect(gain);
-          o.start(now);
-          o.stop(now + 0.22);
+          o.type = 'square'; o.frequency.value = 180; o.connect(gain);
+          o.start(now); o.stop(now + 0.22);
           gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
         }
       } catch (e) {}
@@ -326,12 +404,10 @@ HTML = r"""<!DOCTYPE html>
       const open = $('advanced').classList.toggle('open');
       $('toggleAdv').textContent = open ? 'Advanced: manual token ▴' : 'Advanced: manual token ▾';
     };
+    $('openLoginBtn').onclick = () => window.open(LOGIN_URL, '_blank', 'noopener,noreferrer');
 
-    $('openLoginBtn').onclick = () => {
-      window.open(LOGIN_URL, '_blank', 'noopener,noreferrer');
-    };
-
-    async function api(body) {
+    async function api(body, skipPin) {
+      if (!skipPin) body = Object.assign({ pin: accessPin }, body);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 45000);
       try {
@@ -341,7 +417,12 @@ HTML = r"""<!DOCTYPE html>
           body: JSON.stringify(body),
           signal: controller.signal
         });
-        return await res.json();
+        const data = await res.json();
+        if (data && data.code === 'UNAUTHORIZED') {
+          lockUI();
+          throw new Error(data.message || 'Unauthorized');
+        }
+        return data;
       } finally { clearTimeout(timer); }
     }
 
@@ -446,11 +527,17 @@ HTML = r"""<!DOCTYPE html>
     $('manualBtn').onclick = resetWithToken;
     $('oneClickBtn').onclick = oneClick;
     $('testLoginBtn').onclick = testLogin;
-    document.addEventListener('keydown', e => { if (e.key === 'Enter') oneClick(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && isUnlocked()) oneClick();
+    });
   </script>
 </body>
 </html>
 """
+
+
+def check_pin(pin: str) -> bool:
+    return (pin or "").strip() == ACCESS_PIN
 
 
 def find_token(email: str):
@@ -594,9 +681,24 @@ class handler(BaseHTTPRequestHandler):
             data = {k: v[0] for k, v in data.items()}
 
         action = (data.get("action") or "reset").strip()
-        email = (data.get("email") or "").strip()
+        pin = (data.get("pin") or "").strip()
 
         try:
+            if action == "verify_pin":
+                if check_pin(pin):
+                    return self._json(200, {"success": True, "message": "OK"})
+                return self._json(401, {"success": False, "message": "Galat PIN", "code": "UNAUTHORIZED"})
+
+            # All other actions require PIN
+            if not check_pin(pin):
+                return self._json(401, {
+                    "success": False,
+                    "message": "Access denied. PIN required.",
+                    "code": "UNAUTHORIZED",
+                })
+
+            email = (data.get("email") or "").strip()
+
             if action == "find_token":
                 if not email:
                     return self._json(400, {"success": False, "message": "Email required"})
