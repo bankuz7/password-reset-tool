@@ -3,8 +3,8 @@ import json, os, re, requests
 from urllib.parse import parse_qs
 
 ACCESS_PIN = os.environ.get("ACCESS_PIN", "9712")
-APP_VERSION = os.environ.get("APP_VERSION", "2.1.0")
-APP_CHANGELOG = "OTA update checker, version banner, force refresh"
+APP_VERSION = os.environ.get("APP_VERSION", "2.2.0")
+APP_CHANGELOG = "Fee portal shortcut after success"
 BASE_URL = "https://payment.vaccdharampur.org"
 
 HTML = r'''<!DOCTYPE html>
@@ -62,7 +62,7 @@ button.okb{background:#16a34a;margin-top:.6rem}button.link{background:#0f766e;ma
 <div class="note" style="margin-top:1.25rem;text-align:left">Sirf authorized users. Galat PIN pe API block.</div></div></div>
 <div id="app" class="hidden"><div class="card">
 <div class="top"><div><h1>Password Reset</h1><p class="sub">Vanraj College Payment Portal</p>
-<p class="ver">v<span id="verL">2.1.0</span> · <a href="#" id="chkUp" style="color:inherit">Check update</a></p></div>
+<p class="ver">v<span id="verL">2.2.0</span> · <a href="#" id="chkUp" style="color:inherit">Check update</a></p></div>
 <div style="display:flex;gap:.4rem">
 <button type="button" class="icon" id="otaBtn" title="Check updates">🔄</button>
 <button type="button" class="icon" id="lockBtn">🔒</button>
@@ -75,16 +75,17 @@ button.okb{background:#16a34a;margin-top:.6rem}button.link{background:#0f766e;ma
 <button class="full" id="oneBtn">One-Click Reset</button>
 <button class="full okb" id="testBtn" style="display:none">Test Login</button>
 <button class="full link" id="openBtn" style="display:none">Open Login Page ↗</button>
+<button class="full" id="feeBtn" style="display:none;background:#c2410c;margin-top:.6rem">Open Fee Portal ↗</button>
 <button type="button" class="ghost" id="togAdv">Advanced: manual token ▾</button>
 <div id="adv"><label for="token">Reset Token</label><div class="row">
 <input id="token" type="text" placeholder="auto or paste"><button type="button" class="sec" id="findBtn">Find</button></div>
 <button class="full" id="manBtn" style="margin-top:.75rem">Reset with Token</button></div>
 <div id="res"></div>
-<div class="note"><b>One-Click:</b> Email + password → token + reset.<br>🔄 OTA update check. 🔒 lock. PIN required.</div>
+<div class="note"><b>One-Click:</b> Email + password → token + reset.<br>Success ke baad <b>Open Fee Portal</b> se fees page. 🔄 OTA · 🔒 lock.</div>
 </div></div>
 <script>
-const $=id=>document.getElementById(id), LOGIN='https://payment.vaccdharampur.org/login', PK='tool_unlocked_v1';
-const CLIENT_BUILD='2.1.0';
+const $=id=>document.getElementById(id), LOGIN='https://payment.vaccdharampur.org/login', FEE='https://payment.vaccdharampur.org/', PK='tool_unlocked_v1';
+const CLIENT_BUILD='2.2.0';
 let pin=sessionStorage.getItem('access_pin')||'', last='', sound=localStorage.getItem('sound')!=='off', serverVer=CLIENT_BUILD;
 const unlocked=()=>sessionStorage.getItem(PK)==='1'&&pin;
 const unlock=()=>{$('gate').classList.add('hidden');$('app').classList.remove('hidden')};
@@ -111,10 +112,11 @@ function show(m,ok){const r=$('res');r.style.display='block';r.className=ok?'ok'
 function prog(t,p,ind){$('prog').classList.add('show');$('progT').textContent=t;if(ind){$('progP').textContent='';$('fill').style.width='40%'}else{$('fill').style.width=p+'%';$('progP').textContent=Math.round(p)+'%'}}
 function progHide(){$('prog').classList.remove('show');$('fill').style.width='0'}
 function step(n){[1,2,3].forEach(i=>{const e=$('s'+i);e.classList.remove('active','done');if(i<n)e.classList.add('done');if(i===n)e.classList.add('active')})}
-function successUI(){$('testBtn').style.display='block';$('openBtn').style.display='block'}
-function busy(b){['oneBtn','findBtn','manBtn','testBtn','openBtn'].forEach(id=>{const e=$(id);if(e)e.disabled=b})}
+function successUI(){$('testBtn').style.display='block';$('openBtn').style.display='block';$('feeBtn').style.display='block'}
+function busy(b){['oneBtn','findBtn','manBtn','testBtn','openBtn','feeBtn'].forEach(id=>{const e=$(id);if(e)e.disabled=b})}
 $('togAdv').onclick=()=>{const o=$('adv').classList.toggle('open');$('togAdv').textContent=o?'Advanced: manual token ▴':'Advanced: manual token ▾'};
 $('openBtn').onclick=()=>window.open(LOGIN,'_blank','noopener');
+$('feeBtn').onclick=()=>window.open(FEE,'_blank','noopener');
 async function findOnly(){const email=$('email').value.trim();if(!email)return show('Email dalo',false);busy(true);step(2);prog('Finding token...',30,true);
 try{const d=await api({action:'find_token',email});if(d.success&&d.token){$('token').value=d.token;$('token').classList.add('filled');prog('OK',100,false);show('Token mil gaya',true)}else show(d.message||'Token nahi mila',false)}catch(e){show(e.message,false)}setTimeout(progHide,600);busy(false)}
 async function resetTok(){const email=$('email').value.trim(),token=$('token').value.trim(),password=$('password').value.trim();
@@ -122,12 +124,12 @@ if(!email||!token||!password)return show('Sab fields required',false);if(passwor
 busy(true);prog('Resetting...',50,true);try{const d=await api({action:'reset',email,token,password});prog(d.success?'Done':'Fail',100,false);if(d.success){step(3);last=password;successUI()}show(d.message,!!d.success)}catch(e){show(e.message,false)}setTimeout(progHide,600);busy(false)}
 async function oneClick(){const email=$('email').value.trim(),password=$('password').value.trim();
 if(!email||!password)return show('Email + password',false);if(password.length<6)return show('Min 6 chars',false);
-busy(true);$('testBtn').style.display='none';$('openBtn').style.display='none';try{step(2);prog('1/2 Token...',20,false);
+busy(true);$('testBtn').style.display='none';$('openBtn').style.display='none';$('feeBtn').style.display='none';try{step(2);prog('1/2 Token...',20,false);
 const f=await api({action:'find_token',email});if(!f.success||!f.token){prog('Fail',100,false);show(f.message||'No token',false);return}
 $('token').value=f.token;$('token').classList.add('filled');prog('2/2 Reset...',60,false);
 const d=await api({action:'reset',email,token:f.token,password});prog(d.success?'Complete':'Fail',100,false);if(d.success){step(3);last=password;successUI()}show(d.message,!!d.success)}catch(e){show(e.name==='AbortError'?'Timeout':e.message,false)}finally{setTimeout(progHide,800);busy(false)}}
 async function testLogin(){const email=$('email').value.trim(),password=$('password').value.trim()||last;if(!email||!password)return show('Email+password',false);
-busy(true);prog('Login test...',40,true);try{const d=await api({action:'test_login',email,password});prog(d.success?'OK':'Fail',100,false);show(d.message,!!d.success);if(d.success)$('openBtn').style.display='block'}catch(e){show(e.message,false)}setTimeout(progHide,600);busy(false)}
+busy(true);prog('Login test...',40,true);try{const d=await api({action:'test_login',email,password});prog(d.success?'OK':'Fail',100,false);show(d.message,!!d.success);if(d.success){$('openBtn').style.display='block';$('feeBtn').style.display='block'}}catch(e){show(e.message,false)}setTimeout(progHide,600);busy(false)}
 step(1);$('findBtn').onclick=findOnly;$('manBtn').onclick=resetTok;$('oneBtn').onclick=oneClick;$('testBtn').onclick=testLogin;
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&unlocked())oneClick()});
 </script></body></html>'''
@@ -178,7 +180,7 @@ def reset_password(email, token, password):
     if "/password/reset" in fu and ("invalid" in tl or "expired" in tl):
         ok = False
     if ok:
-        msg = "Password reset successful! Test Login ya Open Login use karo."
+        msg = "Password reset successful! Test Login, Open Login, ya Fee Portal use karo."
     elif "can't find a user" in tl:
         msg = "Account nahi mila."
     elif "token" in tl and ("invalid" in tl or "expired" in tl):
