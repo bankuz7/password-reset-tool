@@ -3,8 +3,8 @@ import json, os, re, requests
 from urllib.parse import parse_qs
 
 ACCESS_PIN = os.environ.get("ACCESS_PIN", "9712")
-APP_VERSION = os.environ.get("APP_VERSION", "2.4.0")
-APP_CHANGELOG = "Local history: last 5 attempts (browser only, no passwords)"
+APP_VERSION = os.environ.get("APP_VERSION", "2.4.1")
+APP_CHANGELOG = "Clear error when email not registered"
 
 PORTALS = {
     "vanraj": {
@@ -21,7 +21,6 @@ PORTALS = {
     },
 }
 
-# Full UI loaded from companion - see deploy
 HTML = r'''<!DOCTYPE html><html lang=hi><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Password Reset</title>
 <style>
 :root{--p:#2563eb;--bg:#f1f5f9;--card:#fff;--t:#0f172a;--m:#64748b;--b:#e2e8f0;--ok:#dcfce7;--okt:#166534;--err:#fee2e2;--errt:#991b1b;--note:#f8fafc;--in:#fff}
@@ -70,7 +69,7 @@ button.okb{background:#16a34a;margin-top:.6rem}button.link{background:#0f766e;ma
 <button class=full id=pinBtn style="margin-top:1rem">Unlock</button><div id=pinErr></div></div></div>
 <div id=app class=hidden><div class=card>
 <div class=top><div><h1>Password Reset</h1><p class=sub id=portalSub>Select portal</p>
-<p class=ver>v<span id=verL>2.4.0</span> · <a href=# id=chkUp style=color:inherit>Check update</a></p></div>
+<p class=ver>v<span id=verL>2.4.1</span> · <a href=# id=chkUp style=color:inherit>Check update</a></p></div>
 <div style="display:flex;gap:.4rem">
 <button type=button class=icon id=otaBtn>🔄</button><button type=button class=icon id=lockBtn>🔒</button>
 <button type=button class=icon id=soundBtn>🔊</button><button type=button class=icon id=themeBtn>🌙</button></div></div>
@@ -96,7 +95,7 @@ button.okb{background:#16a34a;margin-top:.6rem}button.link{background:#0f766e;ma
 <div class=note><b>History</b> last 5 attempts (local only, password save nahi). Portal switcher upar.</div>
 </div></div>
 <script>
-const $=id=>document.getElementById(id),PK='tool_unlocked_v1',CLIENT_BUILD='2.4.0';
+const $=id=>document.getElementById(id),PK='tool_unlocked_v1',CLIENT_BUILD='2.4.1';
 const PORTALS={vanraj:{name:'Vanraj College',login:'https://payment.vaccdharampur.org/login',fee:'https://payment.vaccdharampur.org/'},jppacc:{name:'JPPACC Student',login:'https://student.jppacc.org/login',fee:'https://student.jppacc.org/'}};
 let pin=sessionStorage.getItem('access_pin')||'',last='',sound=localStorage.getItem('sound')!=='off',serverVer=CLIENT_BUILD;
 const HIST_KEY='reset_history_v1';
@@ -178,11 +177,21 @@ def find_token(email, portal_key="vanraj"):
     if tokens:
         return {"success": True, "token": tokens[0], "message": f"Token mil gaya ({p['name']})",
                 "reset_url": f"{base}/password/reset/{tokens[0]}", "portal": portal_key}
-    t = post.text.lower()
-    if "can't find a user" in t or "we can't find" in t:
+    # HTML entities: can&#039;t → can't
+    t = (post.text.lower()
+         .replace("&#039;", "'").replace("&#39;", "'").replace("'", "'")
+         .replace(""", '"'))
+    if (
+        "can't find a user" in t
+        or "we can't find" in t
+        or "find a user with that e-mail" in t
+        or "find a user with that email" in t
+    ):
         return {"success": False, "message": f"Is email se account nahi mila — {p['name']}"}
     if "no valid recipients" in t or "swift_" in t or "whoops" in t:
-        return {"success": False, "message": "SMTP/debug error, token extract nahi hua."}
+        return {"success": False, "message": "SMTP/debug error, token extract nahi hua. Dobara try karo."}
+    if "e-mailed" in t or "we have e-mailed" in t or "password reset link" in t:
+        return {"success": False, "message": f"Reset mail bhej di gayi lagti hai (token leak nahi). Inbox check karo — {p['name']}"}
     return {"success": False, "message": f"Token nahi mila (HTTP {post.status_code}) — {p['name']}"}
 
 def reset_password(email, token, password, portal_key="vanraj"):
@@ -204,14 +213,14 @@ def reset_password(email, token, password, portal_key="vanraj"):
         "_token": csrf, "token": token, "email": email,
         "password": password, "password_confirmation": password
     }, headers={"Referer": url, "Origin": base}, allow_redirects=True, timeout=15)
-    tl, fu = pr.text.lower(), pr.url.lower().rstrip("/")
+    tl, fu = pr.text.lower().replace("&#039;", "'"), pr.url.lower().rstrip("/")
     ok = ("password has been reset" in tl or "/home" in fu or "/login" in fu or "/dashboard" in fu or "/muster" in fu)
     if "/password/reset" in fu and ("invalid" in tl or "expired" in tl):
         ok = False
     if ok:
         msg = f"Password reset successful ({p['name']})!"
-    elif "can't find a user" in tl:
-        msg = "Account nahi mila."
+    elif "can't find a user" in tl or "find a user with that e-mail" in tl:
+        msg = "Is email se account nahi mila."
     elif "token" in tl and ("invalid" in tl or "expired" in tl):
         msg = "Token invalid/expire."
     else:
